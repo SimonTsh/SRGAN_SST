@@ -4,12 +4,12 @@ from torch import nn
 
 
 class Generator(nn.Module):
-    def __init__(self, scale_factor):
+    def __init__(self, in_channels=1, out_channels=1, scale_factor=4):
         upsample_block_num = int(math.log(scale_factor, 2))
 
         super(Generator, self).__init__()
         self.block1 = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=9, padding=4),
+            nn.Conv2d(in_channels, 64, kernel_size=9, padding=4), # in channel = 3 channel RGB --> 1 channel SST
             nn.PReLU()
         )
         self.block2 = ResidualBlock(64)
@@ -22,7 +22,7 @@ class Generator(nn.Module):
             nn.BatchNorm2d(64)
         )
         block8 = [UpsampleBLock(64, 2) for _ in range(upsample_block_num)]
-        block8.append(nn.Conv2d(64, 3, kernel_size=9, padding=4))
+        block8.append(nn.Conv2d(64, out_channels, kernel_size=9, padding=4)) # out channel = 3 --> 1
         self.block8 = nn.Sequential(*block8)
 
     def forward(self, x):
@@ -42,7 +42,7 @@ class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=3, padding=1),
+            nn.Conv2d(1, 64, kernel_size=3, padding=1), # in channel = 3 channel RGB --> 1 channel SST
             nn.LeakyReLU(0.2),
 
             nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1),
@@ -88,10 +88,10 @@ class ResidualBlock(nn.Module):
     def __init__(self, channels):
         super(ResidualBlock, self).__init__()
         self.conv1 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(channels)
+        self.bn1 = nn.BatchNorm2d(channels, 0.8) # added momentum parameter
         self.prelu = nn.PReLU()
         self.conv2 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(channels)
+        self.bn2 = nn.BatchNorm2d(channels, 0.8)
 
     def forward(self, x):
         residual = self.conv1(x)
@@ -107,11 +107,13 @@ class UpsampleBLock(nn.Module):
     def __init__(self, in_channels, up_scale):
         super(UpsampleBLock, self).__init__()
         self.conv = nn.Conv2d(in_channels, in_channels * up_scale ** 2, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(in_channels * up_scale ** 2) # added layer
         self.pixel_shuffle = nn.PixelShuffle(up_scale)
         self.prelu = nn.PReLU()
 
     def forward(self, x):
         x = self.conv(x)
+        x = self.bn1(x)
         x = self.pixel_shuffle(x)
         x = self.prelu(x)
         return x
