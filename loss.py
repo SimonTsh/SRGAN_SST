@@ -7,12 +7,14 @@ class GeneratorLoss(nn.Module):
     def __init__(self):
         super(GeneratorLoss, self).__init__()
         vgg = vgg16(pretrained=True)
-        loss_network = nn.Sequential(*list(vgg.features)[:31]).eval()
-        for param in loss_network.parameters():
+        for param in vgg.parameters():
             param.requires_grad = False
-        self.loss_network = loss_network
+        vgg_new = list(vgg.features)[:31]
+        vgg_new[0] = nn.Conv2d(1, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)) # RGB 3 channels --> SST 1 channel
+        self.loss_network = nn.Sequential(*vgg_new).eval()
         self.mse_loss = nn.MSELoss()
         self.tv_loss = TVLoss()
+        # self.content_loss = nn.L1Loss()
 
     def forward(self, out_labels, out_images, target_images):
         # Adversarial Loss
