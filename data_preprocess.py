@@ -77,7 +77,7 @@ def extract_data(dataset):
 def rearrange_dict_arrays(original_dict, new_order):
     rearranged_dict = {}
     for key, array in original_dict.items():
-        rearranged_dict[key] = array[new_order]
+        rearranged_dict[key] = torch.from_numpy(array[new_order])
     return rearranged_dict
 
 
@@ -142,7 +142,7 @@ num_samples, multi_fac, w, h = np.shape(train_combi['HR'])
 train_combi['HR'] = np.array(train_combi['HR']).reshape(num_samples*multi_fac, w, h)
 num_samples, multi_fac, w, h = np.shape(train_combi['LR']) # w, h different
 train_combi['LR'] = np.array(train_combi['LR']).reshape(num_samples*multi_fac, w, h)
-indices = np.random.permutation(num_samples*multi_fac)
+indices = np.random.permutation(num_samples*multi_fac) # for numpy array
 train_data = rearrange_dict_arrays(train_combi, indices)
 print('train data shuffled successfully')
 
@@ -167,14 +167,13 @@ if to_visualise:
 
     for i, ax in enumerate(axes.flat):
         if i < len(images):
-            ax.imshow(images[i], cmap='viridis')
+            ax.imshow(images[i].cpu().numpy(), cmap='viridis')
         ax.axis('off')
     # grid = vutils.make_grid(images, nrow=4, normalize=True, padding=2)
     # grid = grid.permute(1, 2, 0) # Convert to numpy and adjust dimensions
 
     # Display the grid
     plt.tight_layout()
-    plt.title('Augmented Sample Images')
     plt.savefig(source_folder+'plot.png')
 
 # Save each set as a separate .pkl file
