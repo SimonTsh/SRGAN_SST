@@ -19,14 +19,15 @@ from loss import GeneratorLoss
 from model import Generator, Discriminator
 
 parser = argparse.ArgumentParser(description='Train Super Resolution Models')
+parser.add_argument('--epoch_start', default=0, type=int, help='epoch to start training from')
 parser.add_argument('--crop_size', default=128, type=int, help='training images crop size') # 88
-parser.add_argument('--upscale_factor', default=4, type=int, choices=[2, 4, 8],
-                    help='super resolution upscale factor')
+parser.add_argument('--upscale_factor', default=4, type=int, choices=[2, 4, 8], help='super resolution upscale factor')
 parser.add_argument('--num_epochs', default=100, type=int, help='train epoch number') # 30
-parser.add_argument('--learning_rate', default=0.02, type=float, help='learning rate for generator and discriminator') # 0.0002
+parser.add_argument('--learning_rate', default=0.0004, type=float, help='learning rate for generator and discriminator') # 0.0002
 parser.add_argument('--b1', default=0.5, type=float, help='adam: decay of first order momentum of gradient')
 parser.add_argument('--b2', default=0.999, type=float, help='adam: decay of second order momentum of gradient')
-parser.add_argument("--decay_epoch", type=int, default=(30,50,70), help="start lr decay every decay_epoch epochs") # 10
+parser.add_argument('--decay_epoch', default=(30,50), type=int, help='start lr decay every decay_epoch epochs') # 50
+parser.add_argument('--gamma', default=0.5, type=float, help='multiplicative factor of learning rate decay') # 0.1
 
 def load_data(data):
     data_size = len(data)
@@ -44,6 +45,7 @@ def load_data(data):
 if __name__ == '__main__':
     opt = parser.parse_args()
     
+    EPOCH_START = opt.epoch_start
     CROP_SIZE = opt.crop_size
     UPSCALE_FACTOR = opt.upscale_factor
     NUM_EPOCHS = opt.num_epochs
@@ -51,6 +53,7 @@ if __name__ == '__main__':
     B1 = opt.b1
     B2 = opt.b2
     DECAY_EPOCH = opt.decay_epoch
+    GAMMA = opt.gamma
 
     data_dir = 'data/di-lab/'
     train_dir = data_dir + 'train_data.pkl'
@@ -68,8 +71,8 @@ if __name__ == '__main__':
     train_set = TrainTensorDataset(train_HR, crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
     val_set = ValTensorDataset(val_HR, upscale_factor=UPSCALE_FACTOR)
     
-    train_loader = DataLoader(train_set, num_workers=3, batch_size=128, shuffle=True) # batch_size=64, # num_workers=4
-    val_loader = DataLoader(val_set, num_workers=3, batch_size=1, shuffle=False) # num_workers=4
+    train_loader = DataLoader(train_set, num_workers=2, batch_size=128, shuffle=True) # batch_size=64, # num_workers=4
+    val_loader = DataLoader(val_set, num_workers=2, batch_size=1, shuffle=False) # num_workers=4
     # train_set = TrainDatasetFromFolder('data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
     # val_set = ValDatasetFromFolder('data/DIV2K_valid_HR', upscale_factor=UPSCALE_FACTOR)
     # train_loader = DataLoader(dataset=train_set, num_workers=0, batch_size=64, shuffle=True) # num_workers = 4
@@ -87,11 +90,15 @@ if __name__ == '__main__':
         netD.cuda()
         generator_criterion.cuda()
     
+    if EPOCH_START != 0:
+        netG.load_state_dict(torch.load('epochs/netG_epoch_%d_%d.pth' % (UPSCALE_FACTOR, EPOCH_START)))
+        netD.load_state_dict(torch.load('epochs/netD_epoch_%d_%d.pth' % (UPSCALE_FACTOR, EPOCH_START)))
+
     optimizerG = optim.Adam(netG.parameters(), lr=LEARNING_RATE, betas=(B1,B2))
     optimizerD = optim.Adam(netD.parameters(), lr=LEARNING_RATE, betas=(B1,B2))
 
-    schedulerG = MultiStepLR(optimizerG, milestones=[DECAY_EPOCH], gamma=0.1)
-    schedulerD = MultiStepLR(optimizerD, milestones=[DECAY_EPOCH], gamma=0.1)
+    schedulerG = MultiStepLR(optimizerG, milestones=[DECAY_EPOCH], gamma=GAMMA)
+    schedulerD = MultiStepLR(optimizerD, milestones=[DECAY_EPOCH], gamma=GAMMA)
     
     results = {'d_loss': [], 'g_loss': [], 'd_score': [], 'g_score': [], 'psnr': [], 'ssim': []}
     
@@ -197,7 +204,7 @@ if __name__ == '__main__':
             index = 1
             for image in val_save_bar:
                 image = utils.make_grid(image, nrow=3, padding=5)
-                if index % 50 == 0:
+                if index % 100 == 0:
                     utils.save_image(image, out_path + 'epoch_%d_index_%d.png' % (epoch, index), padding=5)
                 index += 1
     
