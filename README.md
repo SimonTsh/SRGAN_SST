@@ -16,11 +16,11 @@ conda install opencv
 ### Train、Val Dataset
 The train and val datasets are sampled from High-resolution SST data from Himawari satellite and Low-resolution SST data from OSTIA as ground truth.
 Train dataset has 11378 images and Val dataset has 2398 images.
-Download the datasets from [here](https://www.ncei.noaa.gov/access/metadata/landing-page/bin/iso?id=gov.noaa.nodc:GHRSST-AHI_H09-STAR-L3C), and then extract it into `data` directory.
+Download the datasets from [here](https://www.ncei.noaa.gov/access/metadata/landing-page/bin/iso?id=gov.noaa.nodc:GHRSST-AHI_H09-STAR-L3C), and then extracts it into `data` directory.
 Augmentation consisting of rotation and horizontal flip can also be performed with data_preprocess.py.
 
 ### Test Image Dataset
-The test image dataset is also sampled from the same source as train and val, with a 70-15-15 split using the data_preprocess.py code (which automatically extracts it into `data` directory).
+The test image dataset is also sampled from the same source as train and val, with a 70-15-15 split using the data_preprocess.py code (which automatically extracts into `data` directory).
 
 ## Usage
 
@@ -36,6 +36,7 @@ optional arguments:
 --b1                          first order momentum of gradient [default: 0.5]
 --b2                          second order momentum of gradient [default: 0.999]
 --decay_epoch                 start lr decay every decay_epoch epochs [default: 50]
+--gamma                       multiplicative factor of learning rate decay [default: 0.1]
 ```
 The output val super resolution images are on `training_results` directory.
 
