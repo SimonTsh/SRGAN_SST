@@ -1,4 +1,4 @@
-# SRGAN
+# SRGAN_SST
 An adaptation of the PyTorch implementation of SRGAN from https://github.com/leftthomas/SRGAN for Sea Surface Temperature (SST) dataset. Model architecture is based on the CVPR 2017 paper [Photo-Realistic Single Image Super-Resolution Using a Generative Adversarial Network](https://arxiv.org/abs/1609.04802).
 
 ## Requirements
