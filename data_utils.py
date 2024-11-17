@@ -77,7 +77,7 @@ class TrainTensorDataset(Dataset):
         self.lr_transform = train_lr_transformTensor(crop_size, upscale_factor)
 
     def __getitem__(self, index):
-        hr_image = self.hr_transform(self.dataset[index])
+        hr_image = self.hr_transform(self.dataset[index]) # already ToPILImage() inside transform function
         lr_image = self.lr_transform(hr_image)
         return lr_image, hr_image
     
@@ -113,7 +113,7 @@ class ValTensorDataset(Dataset):
 
     def __getitem__(self, index):
         hr_image = self.dataset[index]
-        _, w, h = hr_image.size()
+        w, h = hr_image.size()
         crop_size = calculate_valid_crop_size(min(w, h), self.upscale_factor)
         lr_scale = Resize(crop_size // self.upscale_factor, interpolation=Image.BICUBIC)
         hr_scale = Resize(crop_size, interpolation=Image.BICUBIC)
