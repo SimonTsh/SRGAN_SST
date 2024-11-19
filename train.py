@@ -19,7 +19,7 @@ from loss import GeneratorLoss
 from model import Generator, Discriminator
 
 parser = argparse.ArgumentParser(description='Train Super Resolution Models')
-parser.add_argument('--epoch_start', default=0, type=int, help='epoch to start training from')
+parser.add_argument('--epoch_start', default=38, type=int, help='epoch to start training from') # 0
 parser.add_argument('--crop_size', default=128, type=int, help='training images crop size') # 88
 parser.add_argument('--upscale_factor', default=4, type=int, choices=[2, 4, 8], help='super resolution upscale factor')
 parser.add_argument('--num_epochs', default=100, type=int, help='train epoch number') # 30
@@ -91,6 +91,7 @@ if __name__ == '__main__':
         generator_criterion.cuda()
     
     if EPOCH_START != 0:
+        print('Starting from epoch %d...' % EPOCH_START)
         netG.load_state_dict(torch.load('epochs/netG_epoch_%d_%d.pth' % (UPSCALE_FACTOR, EPOCH_START)))
         netD.load_state_dict(torch.load('epochs/netD_epoch_%d_%d.pth' % (UPSCALE_FACTOR, EPOCH_START)))
 
@@ -102,7 +103,7 @@ if __name__ == '__main__':
     
     results = {'d_loss': [], 'g_loss': [], 'd_score': [], 'g_score': [], 'psnr': [], 'ssim': []}
     
-    for epoch in range(1, NUM_EPOCHS + 1):
+    for epoch in range(EPOCH_START + 1, NUM_EPOCHS + 1):
         train_bar = tqdm(train_loader)
         running_results = {'batch_sizes': 0, 'd_loss': 0, 'g_loss': 0, 'd_score': 0, 'g_score': 0}
     
@@ -224,5 +225,5 @@ if __name__ == '__main__':
             data_frame = pd.DataFrame(
                 data={'Loss_D': results['d_loss'], 'Loss_G': results['g_loss'], 'Score_D': results['d_score'],
                       'Score_G': results['g_score'], 'PSNR': results['psnr'], 'SSIM': results['ssim']},
-                index=range(1, epoch + 1))
+                index=range(EPOCH_START + 1, epoch + 1))
             data_frame.to_csv(out_path + 'di-lab_' + str(UPSCALE_FACTOR) + '_train_results.csv', index_label='Epoch')
