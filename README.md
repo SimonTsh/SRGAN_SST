@@ -58,8 +58,12 @@ Epochs with batch size of 128 takes ~8 minute 30 seconds on a NVIDIA GTX 1080Ti 
 The left is bicubic interpolation image, the middle is high resolution (original) image, and 
 the right is super resolution generated image (output of SRGAN).
 
-- Australia_30epochs (PSNR:23.0122; SSIM:0.8960)
+- Australia_100epochs_1 (PSNR:23.6378; SSIM:0.9107)
 
 ![Australia](images/1.png)
+
+- Australia_100epochs_2 (PSNR:23.7581; SSIM:0.8897)
+
+![Australia](images/2.png)
 
 The complete test results could be downloaded from [here](https://github.com/SimonTsh/SRGAN_SST).
