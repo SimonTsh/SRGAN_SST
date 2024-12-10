@@ -2,6 +2,7 @@ from os import listdir
 from os.path import join
 
 from PIL import Image
+import torch
 from torch.utils.data.dataset import Dataset
 from torchvision.transforms import Compose, RandomCrop, ToTensor, ToPILImage, CenterCrop, Resize
 
@@ -167,7 +168,8 @@ class TestTensorDataset(Dataset):
         hr_image = ToPILImage()(hr_image)
         lr_image = hr_image.resize((int(w_hr / self.upscale_factor), int(h_hr / self.upscale_factor)), Image.LANCZOS)
         
-        hr_scale = Resize((self.upscale_factor * w_lr, self.upscale_factor * h_lr), interpolation=Image.BICUBIC)
+        # hr_scale = Resize((self.upscale_factor * w_lr, self.upscale_factor * h_lr), interpolation=Image.BICUBIC)
+        hr_scale = Resize((w_hr, h_hr), interpolation=Image.BICUBIC)
         hr_restore_img = hr_scale(lr_image)
 
         return ToTensor()(lr_image), ToTensor()(hr_restore_img), ToTensor()(hr_image)

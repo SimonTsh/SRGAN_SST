@@ -21,14 +21,15 @@ from loss import GeneratorLoss, compute_gradient_penalty
 from model import Generator, Discriminator_WGAN
 
 parser = argparse.ArgumentParser(description='Train Super Resolution Models')
-parser.add_argument('--epoch_start', default=0, type=int, help='epoch to load from')
-parser.add_argument('--crop_size', default=96, type=int, help='training images crop size') # 88 # 128
+parser.add_argument('--epoch_start', default=554, type=int, help='epoch to load from') # 0
+parser.add_argument('--crop_size', default=64, type=int, help='training images crop size') # 88 # 96 # 128
 parser.add_argument('--upscale_factor', default=4, type=int, choices=[2, 4, 8], help='super resolution upscale factor')
-parser.add_argument('--num_epochs', default=500, type=int, help='train epoch number') # 30
-parser.add_argument('--learning_rate', default=0.0001, type=float, help='learning rate for generator and discriminator') # 0.0002
-parser.add_argument('--b1', default=0.5, type=float, help='adam: decay of first order momentum of gradient')
-parser.add_argument('--b2', default=0.999, type=float, help='adam: decay of second order momentum of gradient')
-parser.add_argument('--decay_epoch', default=100, type=int, help='start lr decay every decay_epoch epochs') # 30,50,70
+parser.add_argument('--num_epochs', default=750, type=int, help='train epoch number') # 30,100,500
+parser.add_argument('--g_learning_rate', default=1e-4, type=float, help='learning rate for generator') # 0.0001
+parser.add_argument('--d_learning_rate', default=1e-5, type=float, help='learning rate for discriminator') # 0.0002
+parser.add_argument('--b1', default=0.0, type=float, help='adam: decay of first order momentum of gradient') # 0.5
+parser.add_argument('--b2', default=0.9, type=float, help='adam: decay of second order momentum of gradient') # 0.999
+parser.add_argument('--decay_epoch', default=250, type=int, help='start lr decay every decay_epoch epochs') # 30,50,70,100
 parser.add_argument('--gamma', default=0.1, type=float, help='multiplicative factor of learning rate decay') # 0.5
 
 def load_data(data):
@@ -51,7 +52,8 @@ if __name__ == '__main__':
     CROP_SIZE = opt.crop_size
     UPSCALE_FACTOR = opt.upscale_factor
     NUM_EPOCHS = opt.num_epochs
-    LEARNING_RATE = opt.learning_rate
+    G_LEARNING_RATE = opt.g_learning_rate
+    D_LEARNING_RATE = opt.d_learning_rate
     B1 = opt.b1
     B2 = opt.b2
     DECAY_EPOCH = opt.decay_epoch
@@ -75,8 +77,8 @@ if __name__ == '__main__':
     train_set = TrainTensorDataset(train_HR, crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
     val_set = ValTensorDataset(val_HR, upscale_factor=UPSCALE_FACTOR)
     
-    train_loader = DataLoader(train_set, num_workers=2, batch_size=32, shuffle=True) # batch_size=64, 128 # num_workers=4
-    val_loader = DataLoader(val_set, num_workers=2, batch_size=1, shuffle=False) # num_workers=4
+    train_loader = DataLoader(train_set, num_workers=4, batch_size=32, shuffle=True) # batch_size=32, 64, 128
+    val_loader = DataLoader(val_set, num_workers=4, batch_size=1, shuffle=False)
     
     netG = Generator(in_channels=1, out_channels=1, scale_factor=UPSCALE_FACTOR)
     print('# generator parameters:', sum(param.numel() for param in netG.parameters()))
@@ -98,12 +100,17 @@ if __name__ == '__main__':
         netG.load_state_dict(torch.load('epochs/netG_epoch_%d_%d.pth' % (UPSCALE_FACTOR, EPOCH_START)))
         netD.load_state_dict(torch.load('epochs/netD_epoch_%d_%d.pth' % (UPSCALE_FACTOR, EPOCH_START)))
 
-    optimizerG = optim.Adam(netG.parameters(), lr=LEARNING_RATE)#, betas=(B1,B2))
-    optimizerD = optim.Adam(netD.parameters(), lr=LEARNING_RATE)#, betas=(B1,B2))
+    optimizerG = optim.Adam(netG.parameters(), lr=G_LEARNING_RATE, betas=(B1, B2))
+    optimizerD = optim.Adam(netD.parameters(), lr=D_LEARNING_RATE, betas=(B1, B2))
 
     schedulerG = MultiStepLR(optimizerG, milestones=[DECAY_EPOCH], gamma=GAMMA)
     schedulerD = MultiStepLR(optimizerD, milestones=[DECAY_EPOCH], gamma=GAMMA)
     
+    numIterationsDPerG = 5 # number of discriminator iterations per generator iteration
+    # best_psnr = 0 # to track best achievable psnr
+    # patience = 10  # number of epochs to wait before stopping
+    # patience_counter = 0 # to be refreshed
+
     results = {'d_loss': [], 'g_loss': [], 'd_score': [], 'g_score': [], 'psnr': [], 'ssim': []}
     
     for epoch in range(EPOCH_START + 1, NUM_EPOCHS + 1):
@@ -140,30 +147,37 @@ if __name__ == '__main__':
             ############################
             # (2) Update D network: maximize D(x)-1-D(G(z))
             ###########################
-            optimizerD.zero_grad()
+            for _ in range(numIterationsDPerG):
+                optimizerD.zero_grad()
+                real_out = netD(real_img).mean()
+                fake_out = netD(fake_img.detach()).mean()
+                gradient_penalty = compute_gradient_penalty(netD, real_img, fake_img)
+                lamda = 10  # penalty coefficient
+                d_loss = fake_out - real_out + lamda * gradient_penalty
 
-            real_out = netD(real_img).mean()
-            fake_out = netD(fake_img.detach()).mean()
-            gradient_penalty = compute_gradient_penalty(netD, real_img, fake_img)
-            lamda = 10 # penalty coefficient
-            d_loss = fake_out - real_out + lamda * gradient_penalty
+                # Backward pass for discriminator
+                # d_loss.backward()
 
-            params = [p for p in netD.parameters() if p.requires_grad]
-            grads = torch.autograd.grad(d_loss, params, create_graph=True, retain_graph=True)
+                params = [p for p in netD.parameters() if p.requires_grad]
+                grads = torch.autograd.grad(d_loss, params, create_graph=True, retain_graph=True)
 
-            for param, grad in zip(params, grads):
-                param.grad = grad # manually set gradients for each parameter in order to retain graph
-            # d_loss.backward(retain_graph=True)
-            
-            optimizerD.step()
-            schedulerD.step()
-            
-            fake_img = netG(z)
-            fake_out = netD(fake_img).mean()
+                for param, grad in zip(params, grads):
+                    param.data = param.data.contiguous()
+                    
+                    param.grad = grad # manually set gradients for each parameter in order to retain graph
+                    if param.grad is not None:
+                        param.grad.data = param.grad.data.contiguous()
+                
+                optimizerD.step()
+                schedulerD.step()
+                
+                fake_img = netG(z)
+                fake_out = netD(fake_img).mean()
 
-            # loss for current batch before optimization 
-            running_results['g_loss'] += g_loss.item() * batch_size
-            running_results['d_loss'] += d_loss.item() * batch_size
+                # loss for current batch before optimization 
+                running_results['g_loss'] += g_loss.item() * batch_size
+                running_results['d_loss'] += d_loss.item() * batch_size
+
             running_results['d_score'] += real_out.item() * batch_size
             running_results['g_score'] += fake_out.item() * batch_size
     
@@ -206,31 +220,52 @@ if __name__ == '__main__':
                     [display_transform()(val_hr_restore.squeeze(0)), 
                      display_transform()(hr.data.cpu().squeeze(0)),
                      display_transform()(sr.data.cpu().squeeze(0))])
+                
+                # current_psnr = validating_results['psnr'] # check for increasing psnr
+                # if current_psnr > best_psnr:
+                #     best_psnr = current_psnr
+                #     patience_counter = 0
+
+                #     # Save the best model
+                #     torch.save(netG.state_dict(), 'epochs/netG_epoch_%d_%d.pth' % (UPSCALE_FACTOR, epoch))
+                #     torch.save(netD.state_dict(), 'epochs/netD_epoch_%d_%d.pth' % (UPSCALE_FACTOR, epoch))
+                # else:
+                #     patience_counter += 1
+                #     if patience_counter >= patience:
+                #         print(f"Early stopping at epoch {epoch} due to no improvement in PSNR for {patience} epochs")
+                #         break
+
             val_images = torch.stack(val_images)
             # Ensure we have a multiple of 15 images
-            if val_images.size(0) % 15 != 0:
+            num_images = 15
+            if val_images.size(0) % num_images != 0:
                 # Pad with blank images or duplicate the last image
-                pad_size = 15 - (val_images.size(0) % 15)
+                pad_size = num_images - (val_images.size(0) % num_images)
                 val_images = torch.cat([val_images, val_images[-1].unsqueeze(0).repeat(pad_size, 1, 1, 1)])
-            val_images = torch.chunk(val_images, val_images.size(0) // 15)
+            val_images = torch.chunk(val_images, val_images.size(0) // num_images)
             
             val_save_bar = tqdm(val_images, desc='[saving training results]')
             index = 1
             for image in val_save_bar:
-                image = utils.make_grid(image, nrow=3, padding=5)
-                if index % 100 == 0:
+                nrow = 3
+                image = utils.make_grid(image, nrow=nrow, padding=5, normalize=True)
+
+                if index % 300 == 0: # %100
                     utils.save_image(image, out_path + 'epoch_%d_index_%d.png' % (epoch, index), padding=5)
                 index += 1
-    
+
         if use_tensorboard:
             log_value('d_loss', running_results['d_loss'] / running_results['batch_sizes'], epoch)
             log_value('g_loss', running_results['g_loss'] / running_results['batch_sizes'], epoch)
+            log_value('d_score', running_results['d_score'] / running_results['batch_sizes'], epoch)
+            log_value('g_score', running_results['g_score'] / running_results['batch_sizes'], epoch)
             log_value('ssim', validating_results['psnr'], epoch)
             log_value('psnr', validating_results['ssim'], epoch)
 
         # save model parameters
         torch.save(netG.state_dict(), 'epochs/netG_epoch_%d_%d.pth' % (UPSCALE_FACTOR, epoch))
         torch.save(netD.state_dict(), 'epochs/netD_epoch_%d_%d.pth' % (UPSCALE_FACTOR, epoch))
+
         # save loss\scores\psnr\ssim
         results['d_loss'].append(running_results['d_loss'] / running_results['batch_sizes'])
         results['g_loss'].append(running_results['g_loss'] / running_results['batch_sizes'])

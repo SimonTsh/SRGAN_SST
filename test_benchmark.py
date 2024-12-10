@@ -20,7 +20,7 @@ from model import Generator
 
 parser = argparse.ArgumentParser(description='Test Benchmark Datasets')
 parser.add_argument('--upscale_factor', default=4, type=int, help='super resolution upscale factor')
-parser.add_argument('--model_name', default='netG_epoch_4_93.pth', type=str, help='generator model epoch name') # 100: non-aug, 35: aug, 93: wgan-gp
+parser.add_argument('--model_name', default='netG_epoch_4_100.pth', type=str, help='generator model epoch name') # 100: non-aug, 35: aug, 93: wgan-gp
 opt = parser.parse_args()
 
 def load_data(data):
@@ -56,7 +56,7 @@ test_HR, test_LR = load_data(test_data) # test_data[0], test_data[1]
 
 # test_set = TestDatasetFromFolder('data/test', upscale_factor=UPSCALE_FACTOR)
 test_set = TestTensorDataset(test_HR, test_LR, upscale_factor=UPSCALE_FACTOR)
-test_loader = DataLoader(dataset=test_set, num_workers=2, batch_size=1, shuffle=False) # num_workers = 4
+test_loader = DataLoader(dataset=test_set, num_workers=4, batch_size=1, shuffle=False)
 test_bar = tqdm(test_loader, desc='[testing benchmark datasets]')
 
 out_path = 'benchmark_results/di-lab_%s/' % str(UPSCALE_FACTOR)
@@ -86,16 +86,20 @@ for lr_image, hr_restore_img, hr_image in test_bar:
     psnr = 10 * log10(1 / mse)
     ssim = pytorch_ssim.ssim(sr_image, hr_image).item() #.data[0]
 
+    mse_bicubic = ((hr_image.data.cpu() - hr_restore_img) ** 2).data.mean()
+    psnr_bicubic = 10 * log10(1 / mse_bicubic)
+    ssim_bicubic = pytorch_ssim.ssim(hr_restore_img, hr_image.data.cpu()).item()
+
     test_images = torch.stack(
         [display_transform()(hr_restore_img.squeeze(0)), 
          display_transform()(hr_image.data.cpu().squeeze(0)),
          display_transform()(sr_image.data.cpu().squeeze(0))])
     image = utils.make_grid(test_images, nrow=3, padding=5)
     image_name = 'test' + str(index)
-    utils.save_image(image, out_path + image_name + '_psnr_%.4f_ssim_%.4f.png' % (psnr, ssim), padding=5)
-    # utils.save_image(image, out_path + image_name.split('.')[0] + '_psnr_%.4f_ssim_%.4f.' % (psnr, ssim) + image_name.split('.')[-1], padding=5)
+    utils.save_image(image, out_path + image_name + '_psnr_%.4f_ssim_%.4f_psnrBC_%.4f_ssimBC_%.4f.png' % (psnr, ssim, psnr_bicubic, ssim_bicubic), padding=5)
+    # utils.save_image(image, out_path + image_name.split('.')[0] + '_psnr_%.4f_ssim_%.4f.' % (psnr, ssim) + image_name.split('.')[-1], padding=5) # TODO: change to colour plot
 
-    # save psnr\ssim
+    # save psnr/ssim
     results[data_name]['psnr'].append(psnr) #0
     results[data_name]['ssim'].append(ssim) #0
     # results[image_name.split('_')[2]]['psnr'].append(psnr)
