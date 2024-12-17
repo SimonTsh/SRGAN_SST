@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-data_dir = 'statistics/di-lab_4_train_results_old.csv' #srf_4_train_results.csv'
+data_dir = 'statistics/di-lab_4_train_results.csv' #srf_4_train_results.csv'
 df = pd.read_csv(data_dir)
 
 df = df.set_index(df.columns[0]) # set first column as the index

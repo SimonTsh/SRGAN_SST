@@ -1,6 +1,7 @@
 import os
 import shutil
 import pickle
+import zipfile
 
 import torch
 from torchvision.transforms import Compose, RandomRotation, RandomHorizontalFlip, ToTensor, ToPILImage
@@ -32,7 +33,7 @@ class AugmentedDataset:
 def transform():
     return Compose([
         ToPILImage(),
-        RandomRotation((-180, 180)),  # Random rotation of full 360deg
+        RandomRotation((-180, 180)),  # Random rotation of full possible 360deg
         RandomHorizontalFlip(),  # Random horizontal flip
         ToTensor()
         # transforms.FiveCrop(224),  # Five crop
@@ -58,13 +59,14 @@ def move_hr_pngs(source_folder, destination_folder):
 def load_data(data):
     data_size = len(data)
     c, patch_hr_h, patch_hr_w = data[0][0].shape # need to include channel size allocation
-    c, patch_lr_h, patch_lr_w = data[0][7].shape
+    # c, patch_lr_h, patch_lr_w = data[0][7].shape
 
     image_HR_interp = torch.empty(data_size, c, patch_hr_h, patch_hr_w)
     image_HR        = torch.empty(data_size, c, patch_hr_h, patch_hr_w)
-    image_LR        = torch.empty(data_size, c, patch_lr_h, patch_lr_w)
+    image_LR        = [] #torch.empty(data_size, c, patch_lr_h, patch_lr_w)
     for index, value in enumerate(data):
-        image_HR_interp[index,:,:,:], image_HR[index,:,:,:], _, _, _, _, _, image_LR[index,:,:,:], _ = value #_, _ = value
+        image_HR_interp[index,:,:,:], image_HR[index,:,:,:], *arg = value
+        image_LR.append(value[7][0,:,:]) # since LR has different image sizes
 
     return image_HR_interp, image_HR, image_LR
 
@@ -89,15 +91,29 @@ source_folder = "data/di-lab/" # upsample factor: 2 or 4
 
 ## To separate dataset into train, test, val
 # Load the data from the .pkl file
-data_dir = source_folder+'train_1y_Australia2.pkl'
-with open(data_dir, 'rb') as f:
-    data = pickle.load(f)
+data_filename = 'sc_256_2y_5.pkl' # 'SCS_data.zip' # 'train_1y_Australia2.pkl'
+root, extension = os.path.splitext(data_filename)
+data_dir = source_folder + data_filename
+
+if extension == '.pkl':
+    with open(data_dir, 'rb') as f:
+        data = pickle.load(f)
+elif extension == '.zip':
+    with zipfile.ZipFile(data_dir, 'r') as f:
+        print(f.namelist())
+else:
+    KeyError('Not a recognised file type')
+
 data_HR_interp, data_HR, data_LR = load_data(data)
+min_size = min({len(data_lr) for data_lr in data_LR})
+data_LR_cut = torch.empty(data_HR.shape[0], data_HR.shape[1], min_size, min_size)
+for i, data_lr in enumerate(data_LR):
+    data_LR_cut[i,0,:,:] = data_lr[:min_size,:min_size]
 print('data loaded successfully')
 # Store in a dictionary or tuple for clarity
 data = {
     'HR': data_HR,
-    'LR': data_LR
+    'LR': data_LR_cut
 }
 
 # Set a seed for reproducibility
@@ -174,14 +190,14 @@ if to_visualise:
 
     # Display the grid
     plt.tight_layout()
-    plt.savefig(source_folder+'plot.png')
+    plt.savefig(source_folder+f'{root}_plot.png')
 
 # Save each set as a separate .pkl file
-with open(source_folder+'train_data.pkl', 'wb') as f:
+with open(source_folder+f'{root}_train_data.pkl', 'wb') as f:
     pickle.dump(train_data, f)
 
-with open(source_folder+'val_data.pkl', 'wb') as f:
+with open(source_folder+f'{root}_val_data.pkl', 'wb') as f:
     pickle.dump(val_data, f)
 
-with open(source_folder+'test_data.pkl', 'wb') as f:
+with open(source_folder+f'{root}_test_data.pkl', 'wb') as f:
     pickle.dump(test_data, f)
