@@ -52,6 +52,7 @@ The output super resolution images are on `benchmark_results` directory.
 
 ## Benchmarks
 **SRGAN (Upscale Factor = 4)**
+
 Epochs with batch size of 128 takes ~8 minute 30 seconds on a NVIDIA GTX 1080Ti GPU. 
 
 Left: bicubic interpolation image, Middle: high resolution (original) image, and Right: super resolution generated image (output of SRGAN).
@@ -65,6 +66,7 @@ Left: bicubic interpolation image, Middle: high resolution (original) image, and
 ![Australia](images/2.png)
 
 **WGAN-GP (Upscale Factor = 4)**
+
 Epochs with batch size of 64 takes ~5 minute 25 seconds on a NVIDIA GTX 1080Ti GPU. 
 
 Left: bicubic interpolation image, Middle: high resolution (original) image, and Right: super resolution generated image (output of WGAN-GP).
