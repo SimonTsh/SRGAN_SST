@@ -79,4 +79,4 @@ Left: bicubic interpolation image, Middle: high resolution (original) image, and
 
 ![Australia](images/4.png)
 
-The complete test results could be downloaded from [here](https://github.com/SimonTsh/SRGAN_SST/benchmark_results).
+The complete test results could be downloaded from [here](https://github.com/SimonTsh/SRGAN_SST/tree/master/benchmark_results).
