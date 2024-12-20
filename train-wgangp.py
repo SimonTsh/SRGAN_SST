@@ -11,6 +11,7 @@ import torch.optim as optim
 import torch.utils.data
 import torchvision.utils as utils
 from torch.utils.data import DataLoader, ConcatDataset
+from torchsampler import ImbalancedDatasetSampler
 from torch.optim.lr_scheduler import MultiStepLR
 
 from tqdm import tqdm
@@ -22,15 +23,15 @@ from loss import GeneratorLoss, compute_gradient_penalty
 from model import Generator, Discriminator_WGAN
 
 parser = argparse.ArgumentParser(description='Train Super Resolution Models')
-parser.add_argument('--epoch_start', default=113, type=int, help='epoch to load from')
+parser.add_argument('--epoch_start', default=250, type=int, help='epoch to load from') # 0
 parser.add_argument('--crop_size', default=64, type=int, help='training images crop size') # 88 # 96 # 128
 parser.add_argument('--upscale_factor', default=4, type=int, choices=[2, 4, 8], help='super resolution upscale factor')
-parser.add_argument('--num_epochs', default=250, type=int, help='train epoch number') # 30,100,500
+parser.add_argument('--num_epochs', default=500, type=int, help='train epoch number') # 30,100,250,500
 parser.add_argument('--g_learning_rate', default=1e-4, type=float, help='learning rate for generator') # 0.0001
 parser.add_argument('--d_learning_rate', default=1e-5, type=float, help='learning rate for discriminator') # 0.0002
 parser.add_argument('--b1', default=0.0, type=float, help='adam: decay of first order momentum of gradient') # 0.5
 parser.add_argument('--b2', default=0.9, type=float, help='adam: decay of second order momentum of gradient') # 0.999
-parser.add_argument('--decay_epoch', default=100, type=int, help='start lr decay every decay_epoch epochs') # 30,50,70,250
+parser.add_argument('--decay_epoch', default=200, type=int, help='start lr decay every decay_epoch epochs') # 30,50,70,100
 parser.add_argument('--gamma', default=0.1, type=float, help='multiplicative factor of learning rate decay') # 0.5
 
 def load_data(data):
@@ -66,6 +67,7 @@ if __name__ == '__main__':
     B2 = opt.b2
     DECAY_EPOCH = opt.decay_epoch
     GAMMA = opt.gamma
+    LAMBDA = 10  # penalty coefficient
 
     use_tensorboard = True
 
@@ -78,25 +80,50 @@ if __name__ == '__main__':
     train_data2 = open_pkl_file(data_dir, data_source2, 'train_data')
     val_data2 = open_pkl_file(data_dir, data_source2, 'val_data')
 
+    out_path = 'training_results/SRF_' + str(UPSCALE_FACTOR) + '/'
+    if not os.path.exists(out_path):
+        os.makedirs(out_path)
+    else:
+        if os.listdir(out_path): # check if directory is not empty
+            for item in os.listdir(out_path): # remove all contents of the directory
+                item_path = os.path.join(out_path, item)
+                if os.path.isfile(item_path) or os.path.islink(item_path):
+                    os.unlink(item_path)
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+    
     gc.enable()
 
-    train_HR, train_LR = ConcatDataset([train_data1['HR'], train_data2['HR']]), ConcatDataset([train_data1['LR'],train_data2['HR']]) #load_data(train_data)
-    val_HR, val_LR = ConcatDataset([val_data1['HR'], val_data2['HR']]), ConcatDataset([val_data1['LR'], val_data2['LR']]) #load_data(val_data)
+    # Set proportion for balancing dataset
+    size_data1 = len(train_data1['HR'])
+    size_data2 = len(train_data2['HR']) 
+    size_fac = size_data1 // size_data2 # 16 times
     
+    # Create concatenated dataset
+    train_HR, train_LR = ConcatDataset([train_data1['HR'][:size_data1//(size_fac//8)], train_data2['HR']]), \
+                            ConcatDataset([train_data1['LR'], train_data2['LR']]) #load_data(train_data)
+    val_HR, val_LR = ConcatDataset([val_data1['HR'][:len(val_data1['HR'])//(size_fac//8)], val_data2['HR']]), \
+                            ConcatDataset([val_data1['LR'], val_data2['LR']]) #load_data(val_data)
+    
+    # Set data parameters
     train_set = TrainTensorDataset(train_HR, crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
     val_set = ValTensorDataset(val_HR, upscale_factor=UPSCALE_FACTOR)
     
-    train_loader = DataLoader(train_set, num_workers=1, batch_size=16, shuffle=True) # batch_size=32, 64, 128 # num_workers=4 --> 16 @ epoch 112 onwards
-    val_loader = DataLoader(val_set, num_workers=1, batch_size=1, shuffle=False) # num_workers=4
+    # Load dataset into dataloader
+    train_loader = DataLoader(train_set, num_workers=0, batch_size=32, shuffle=True, pin_memory=False) # batch_size=32, 64, 128 # num_workers=4 --> 16 @ epoch 112 onwards
+    val_loader = DataLoader(val_set, num_workers=0, batch_size=1, shuffle=False, pin_memory=False) # num_workers=4
+    del train_set, val_set, train_HR, train_LR, val_HR, val_LR, train_data1, train_data2, val_data1, val_data2
     
+    # Define model generator and critic
     netG = Generator(in_channels=1, out_channels=1, scale_factor=UPSCALE_FACTOR)
     print('# generator parameters:', sum(param.numel() for param in netG.parameters()))
     netD = Discriminator_WGAN()
-    print('# discriminator parameters:', sum(param.numel() for param in netD.parameters()))
-    
+    print('# discriminator parameters:', sum(param.numel() for param in netD.parameters()))    
     generator_criterion = GeneratorLoss()
     
+    # Set training and saving parameters
     if torch.cuda.is_available():
+        torch.cuda.empty_cache()
         netG.cuda()
         netD.cuda()
         generator_criterion.cuda()
@@ -109,6 +136,7 @@ if __name__ == '__main__':
         netG.load_state_dict(torch.load('epochs/netG_epoch_%d_%d.pth' % (UPSCALE_FACTOR, EPOCH_START)))
         netD.load_state_dict(torch.load('epochs/netD_epoch_%d_%d.pth' % (UPSCALE_FACTOR, EPOCH_START)))
 
+    # Define learning parameters
     optimizerG = optim.Adam(netG.parameters(), lr=G_LEARNING_RATE, betas=(B1, B2))
     optimizerD = optim.Adam(netD.parameters(), lr=D_LEARNING_RATE, betas=(B1, B2))
 
@@ -120,8 +148,8 @@ if __name__ == '__main__':
     # patience = 10  # number of epochs to wait before stopping
     # patience_counter = 0 # to be refreshed
 
-    results = {'d_loss': [], 'g_loss': [], 'd_score': [], 'g_score': [], 'psnr': [], 'ssim': []}
-    
+    # Start training procedure
+    results = {'d_loss': [], 'g_loss': [], 'd_score': [], 'g_score': [], 'psnr': [], 'ssim': []}    
     for epoch in range(EPOCH_START + 1, NUM_EPOCHS + 1):
         train_bar = tqdm(train_loader)
         running_results = {'batch_sizes': 0, 'd_loss': 0, 'g_loss': 0, 'd_score': 0, 'g_score': 0}
@@ -161,8 +189,7 @@ if __name__ == '__main__':
                 real_out = netD(real_img).mean()
                 fake_out = netD(fake_img.detach()).mean()
                 gradient_penalty = compute_gradient_penalty(netD, real_img, fake_img)
-                lamda = 10  # penalty coefficient
-                d_loss = fake_out - real_out + lamda * gradient_penalty
+                d_loss = fake_out - real_out + LAMBDA * gradient_penalty
 
                 # Backward pass for discriminator
                 # d_loss.backward()
@@ -197,17 +224,6 @@ if __name__ == '__main__':
                 running_results['g_score'] / running_results['batch_sizes']))
     
         netG.eval()
-        out_path = 'training_results/SRF_' + str(UPSCALE_FACTOR) + '/'
-        if not os.path.exists(out_path):
-            os.makedirs(out_path)
-        else:
-            if os.listdir(out_path): # check if directory is not empty
-                for item in os.listdir(out_path): # remove all contents of the directory
-                    item_path = os.path.join(out_path, item)
-                    if os.path.isfile(item_path) or os.path.islink(item_path):
-                        os.unlink(item_path)
-                    elif os.path.isdir(item_path):
-                        shutil.rmtree(item_path)
         
         with torch.no_grad():
             val_bar = tqdm(val_loader)
@@ -292,9 +308,9 @@ if __name__ == '__main__':
         results['ssim'].append(validating_results['ssim'])
     
         if epoch != 0: # and epoch % 10 == 0:
-            out_path = 'statistics/'
+            out_statistics_path = 'statistics/'
             data_frame = pd.DataFrame(
                 data={'Loss_D': results['d_loss'], 'Loss_G': results['g_loss'], 'Score_D': results['d_score'],
                       'Score_G': results['g_score'], 'PSNR': results['psnr'], 'SSIM': results['ssim']},
                 index=range(EPOCH_START + 1, epoch + 1))
-            data_frame.to_csv(out_path + 'di-lab_' + str(UPSCALE_FACTOR) + '_train_results.csv', index_label='Epoch')
+            data_frame.to_csv(out_statistics_path + 'di-lab_' + str(UPSCALE_FACTOR) + '_train_results.csv', index_label='Epoch')

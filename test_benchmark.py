@@ -37,7 +37,7 @@ def load_data(data):
     return image_HR, image_LR
 
 
-data_filename = 'train_1y_Australia2_test_data.pkl' # 'sc_256_2y_5_test_data.pkl' # 
+data_filename = 'sc_256_2y_5_test_data.pkl' # 'train_1y_Australia2_test_data.pkl' # 
 data_name, extension = os.path.splitext(data_filename)
 results = {data_name: {'psnr': [], 'ssim': []}} #,'Set5': {'psnr': [], 'ssim': []}
 
@@ -57,10 +57,12 @@ with open(test_dir,'rb') as f:
     test_data = pickle.load(f)
 gc.enable()
 test_HR, test_LR = load_data(test_data) # test_data[0], test_data[1]
+test_HR_max = test_HR.max(); test_HR_min = test_HR.min()
+test_LR_max = test_LR.max(); test_LR_min = test_LR.min()
 
 # test_set = TestDatasetFromFolder('data/test', upscale_factor=UPSCALE_FACTOR)
 test_set = TestTensorDataset(test_HR, test_LR, upscale_factor=UPSCALE_FACTOR)
-test_loader = DataLoader(dataset=test_set, num_workers=1, batch_size=1, shuffle=False) # num_workers = 4
+test_loader = DataLoader(dataset=test_set, num_workers=2, batch_size=1, shuffle=False) # num_workers = 4
 test_bar = tqdm(test_loader, desc='[testing benchmark datasets]')
 
 out_path = 'benchmark_results/di-lab_%s/' % str(UPSCALE_FACTOR)
@@ -100,12 +102,12 @@ for lr_image, hr_restore_img, hr_image in test_bar:
          display_transform()(sr_image.data.cpu().squeeze(0))]).squeeze()
     image = test_images # utils.make_grid(test_images, nrow=3, padding=5)
     image_name = 'test' + str(index)
-    fig, axes = plt.subplots(1,3)
+    fig, axes = plt.subplots(1, 3, figsize=(20, 20))
     for i, ax in enumerate(axes):
-        im = ax.imshow(image[i].numpy(), cmap='viridis')
+        im = ax.imshow(image[i].numpy() * test_HR_max.numpy(), cmap='viridis')
         ax.set_axis_off()
-    cax = fig.add_axes([ax.get_position().x1 + 0.01, ax.get_position().y0, 0.02, ax.get_position().height])
-    fig.colorbar(im, cax=cax)
+        cax = fig.add_axes([ax.get_position().x1 + 0.005, ax.get_position().y0, 0.02, ax.get_position().height])
+        fig.colorbar(im, cax=cax)
     fig.savefig(out_path + image_name + '_psnr_%.4f_ssim_%.4f_psnrBC_%.4f_ssimBC_%.4f.png' % (psnr, ssim, psnr_bicubic, ssim_bicubic), dpi=300, bbox_inches='tight', pad_inches=0.1)
     # utils.save_image(image, out_path + image_name + '_psnr_%.4f_ssim_%.4f_psnrBC_%.4f_ssimBC_%.4f.png' % (psnr, ssim, psnr_bicubic, ssim_bicubic), padding=5)
     # utils.save_image(image, out_path + image_name.split('.')[0] + '_psnr_%.4f_ssim_%.4f.' % (psnr, ssim) + image_name.split('.')[-1], padding=5) # TODO: change to colour plot

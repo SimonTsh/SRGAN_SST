@@ -21,10 +21,10 @@ from model import Generator, Discriminator
 
 parser = argparse.ArgumentParser(description='Train Super Resolution Models')
 parser.add_argument('--epoch_start', default=0, type=int, help='epoch to load from')
-parser.add_argument('--crop_size', default=64, type=int, help='training images crop size') # 88 # 128
+parser.add_argument('--crop_size', default=128, type=int, help='training images crop size') # 64 # 88 # 96 # 128
 parser.add_argument('--upscale_factor', default=4, type=int, choices=[2, 4, 8], help='super resolution upscale factor')
 parser.add_argument('--num_epochs', default=100, type=int, help='train epoch number') # 30
-parser.add_argument('--learning_rate', default=0.0004, type=float, help='learning rate for generator and discriminator') # 0.0002
+parser.add_argument('--learning_rate', default=4e-4, type=float, help='learning rate for generator and discriminator') # 0.0002
 parser.add_argument('--b1', default=0.5, type=float, help='adam: decay of first order momentum of gradient')
 parser.add_argument('--b2', default=0.999, type=float, help='adam: decay of second order momentum of gradient')
 parser.add_argument('--decay_epoch', default=50, type=int, help='start lr decay every decay_epoch epochs') # (30,50)
@@ -72,16 +72,37 @@ if __name__ == '__main__':
     train_data2 = open_pkl_file(data_dir, data_source2, 'train_data')
     val_data2 = open_pkl_file(data_dir, data_source2, 'val_data')
 
+    out_path = 'training_results/SRF_' + str(UPSCALE_FACTOR) + '/'
+    if not os.path.exists(out_path):
+        os.makedirs(out_path)
+    else:
+        if os.listdir(out_path): # check if directory is not empty
+            for item in os.listdir(out_path): # remove all contents of the directory
+                item_path = os.path.join(out_path, item)
+                if os.path.isfile(item_path) or os.path.islink(item_path):
+                    os.unlink(item_path)
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+
     gc.enable()
 
-    train_HR, train_LR = ConcatDataset([train_data1['HR'], train_data2['HR']]), ConcatDataset([train_data1['LR'],train_data2['HR']]) #load_data(train_data)
-    val_HR, val_LR = ConcatDataset([val_data1['HR'], val_data2['HR']]), ConcatDataset([val_data1['LR'], val_data2['LR']]) #load_data(val_data)
+    # Set proportion for balancing dataset
+    size_data1 = len(train_data1['HR'])
+    size_data2 = len(train_data2['HR']) 
+    size_fac = size_data1 // size_data2 # 16 times
+
+    train_HR, train_LR = ConcatDataset([train_data1['HR'][:size_data1//(size_fac//8)], train_data2['HR']]), \
+                            ConcatDataset([train_data1['LR'], train_data2['LR']]) #load_data(train_data)
+    val_HR, val_LR = ConcatDataset([val_data1['HR'][:len(val_data1['HR'])//(size_fac//8)], val_data2['HR']]), \
+                            ConcatDataset([val_data1['LR'], val_data2['LR']]) #load_data(val_data)
     
     train_set = TrainTensorDataset(train_HR, crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
     val_set = ValTensorDataset(val_HR, upscale_factor=UPSCALE_FACTOR)
     
-    train_loader = DataLoader(train_set, num_workers=2, batch_size=32, shuffle=True) # batch_size=64, # 128, # num_workers=4
-    val_loader = DataLoader(val_set, num_workers=2, batch_size=1, shuffle=False) # num_workers=4
+    train_loader = DataLoader(train_set, num_workers=0, batch_size=64, shuffle=True) # batch_size=64, # 128, # num_workers=4
+    val_loader = DataLoader(val_set, num_workers=0, batch_size=1, shuffle=False) # num_workers=4
+    del train_set, val_set, train_HR, train_LR, val_HR, val_LR, train_data1, train_data2, val_data1, val_data2
+
     # train_set = TrainDatasetFromFolder('data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
     # val_set = ValDatasetFromFolder('data/DIV2K_valid_HR', upscale_factor=UPSCALE_FACTOR)
     # train_loader = DataLoader(dataset=train_set, num_workers=0, batch_size=64, shuffle=True) # num_workers = 4
@@ -171,17 +192,6 @@ if __name__ == '__main__':
                 running_results['g_score'] / running_results['batch_sizes']))
     
         netG.eval()
-        out_path = 'training_results/SRF_' + str(UPSCALE_FACTOR) + '/'
-        if not os.path.exists(out_path):
-            os.makedirs(out_path)
-        else:
-            if os.listdir(out_path): # check if directory is not empty
-                for item in os.listdir(out_path): # remove all contents of the directory
-                    item_path = os.path.join(out_path, item)
-                    if os.path.isfile(item_path) or os.path.islink(item_path):
-                        os.unlink(item_path)
-                    elif os.path.isdir(item_path):
-                        shutil.rmtree(item_path)
         
         with torch.no_grad():
             val_bar = tqdm(val_loader)
@@ -239,9 +249,9 @@ if __name__ == '__main__':
         results['ssim'].append(validating_results['ssim'])
     
         if epoch != 0: # and epoch % 10 == 0:
-            out_path = 'statistics/'
+            out_statistics_path = 'statistics/'
             data_frame = pd.DataFrame(
                 data={'Loss_D': results['d_loss'], 'Loss_G': results['g_loss'], 'Score_D': results['d_score'],
                       'Score_G': results['g_score'], 'PSNR': results['psnr'], 'SSIM': results['ssim']},
                 index=range(EPOCH_START + 1, epoch + 1))
-            data_frame.to_csv(out_path + 'di-lab_' + str(UPSCALE_FACTOR) + '_train_results.csv', index_label='Epoch')
+            data_frame.to_csv(out_statistics_path + 'di-lab_' + str(UPSCALE_FACTOR) + '_train_results.csv', index_label='Epoch')
