@@ -14,7 +14,7 @@ conda install opencv
 ## Datasets
 
 ### Train、Val Dataset
-The train and val datasets are sampled from High-resolution SST data from Himawari satellite and Low-resolution SST data from OSTIA as ground truth.
+The train and val datasets are sampled from High-resolution SST data from Himawari satellite and Low-resolution SST data from OSTIA.
 Train dataset has 11378 images and Val dataset has 2398 images.
 Download the datasets from [here](https://www.ncei.noaa.gov/access/metadata/landing-page/bin/iso?id=gov.noaa.nodc:GHRSST-AHI_H09-STAR-L3C), and then extracts it into `data` directory.
 Augmentation consisting of rotation and horizontal flip can also be performed with data_preprocess.py.
