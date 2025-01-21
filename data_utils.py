@@ -4,7 +4,7 @@ from os.path import join
 from PIL import Image
 import torch
 from torch.utils.data.dataset import Dataset
-from torchvision.transforms import Compose, RandomCrop, ToTensor, ToPILImage, CenterCrop, Resize
+from torchvision.transforms import Compose, RandomCrop, ToTensor, ToPILImage, CenterCrop, Resize, RandomRotation, RandomHorizontalFlip
 
 
 def is_image_file(filename):
@@ -52,6 +52,15 @@ def display_transform():
         ToTensor()
     ])
 
+
+def transform():
+    return Compose([
+        ToPILImage(),
+        RandomRotation((-180, 180)),  # Random rotation of full possible 360deg
+        RandomHorizontalFlip(),  # Random horizontal flip
+        ToTensor()
+        # transforms.FiveCrop(224),  # Five crop
+])
 
 class TrainDatasetFromFolder(Dataset):
     def __init__(self, dataset_dir, crop_size, upscale_factor):
@@ -176,3 +185,33 @@ class TestTensorDataset(Dataset):
 
     def __len__(self):
         return len(self.lr_data)
+
+
+class CustomDataset(Dataset):
+    def __init__(self, data_list1, data_list2):
+        assert len(data_list1) == len(data_list2), "Both lists must have the same length"
+        self.data1 = data_list1
+        self.data2 = data_list2
+
+    def __len__(self):
+        return len(self.data1)
+
+    def __getitem__(self, idx):
+        return self.data1[idx], self.data2[idx]
+
+class AugmentedDataset:
+    def __init__(self, dataset):
+        self.dataset = dataset
+
+    def __iter__(self):
+        for data_HR, data_LR in self.dataset:
+            data_aug_HR = transform()(data_HR[0])
+            data_aug_LR = transform()(data_LR[0])
+
+            data_combi_HR = torch.cat((data_HR[0], data_aug_HR), dim=0)
+            data_combi_LR = torch.cat((torch.unsqueeze(data_LR[0],0), data_aug_LR), dim=0)
+            
+            yield data_combi_HR, data_combi_LR
+
+    def __len__(self):
+        return len(self.dataset)

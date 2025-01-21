@@ -16,28 +16,48 @@ from tqdm import tqdm
 
 import matplotlib.pyplot as plt
 import pytorch_ssim
-from data_utils import TestTensorDataset, display_transform # ,TestDatasetFromFolder
+from data_utils import CustomDataset, TestTensorDataset, display_transform
 from model import Generator
 
 parser = argparse.ArgumentParser(description='Test Benchmark Datasets')
 parser.add_argument('--upscale_factor', default=4, type=int, help='super resolution upscale factor')
-parser.add_argument('--model_name', default='netG_epoch_4_500.pth', type=str, help='generator model epoch name') # 100: non-aug, 35: aug, 93: wgan-gp
+parser.add_argument('--model_name', default='netG_epoch_4_230.pth', type=str, help='generator model epoch name') # 100: non-aug, 35: aug, 93: wgan-gp
 opt = parser.parse_args()
+
+def haversine_distance(lat1, lon1, lat2, lon2):
+    R = 6371  # Earth's radius in kilometers
+    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    
+    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
+    
+    return R * c
 
 def load_data(data):
     data_size = len(data)
-    c, patch_hr_h, patch_hr_w = data[0][0].shape # need to include channel size allocation
-    c, patch_lr_h, patch_lr_w = data[0][1].shape
+    c, patch_hr_h, patch_hr_w = data[0][0][0].shape # need to include channel size allocation
+    c, patch_lr_h, patch_lr_w = torch.unsqueeze(data[0][1][0],0).shape
 
-    image_HR = torch.empty(data_size, c, patch_hr_h, patch_hr_w)
-    image_LR = torch.empty(data_size, c, patch_lr_h, patch_lr_w)
+    image_HR = torch.empty(data_size, c, patch_hr_h, patch_hr_w); image_LR = torch.empty(data_size, c, patch_lr_h, patch_lr_w)
+    latlon_HR = np.empty((data_size, 4, 2)); latlon_LR = np.empty((data_size, 4, 2))
+    time_HR = torch.empty(data_size); time_LR = torch.empty(data_size)
     for index, value in enumerate(data):
-        image_HR[index,:,:,:], image_LR[index,:,:,:] = value
+        image_HR[index,:,:,:] = value[0][0]; image_LR[index,:,:,:] = torch.unsqueeze(value[1][0],0)
+        latlon_HR[index,:,:] = value[0][1]; latlon_LR[index,:,:] = value[1][1]
+        time_HR[index] = value[0][2]; time_LR[index] = value[1][2]
 
-    return image_HR, image_LR
+    return image_HR, image_LR, latlon_HR, latlon_LR, time_HR, time_LR
+
+def find_closest_match(df, mean_latlon):
+    df['distance'] = df.apply(lambda row: haversine_distance(row['lat'], row['lon'], mean_latlon[0], mean_latlon[1]), axis=1)
+    closest_match = df.loc[df['distance'].idxmin(), ['lat', 'lon', 'date', 'sst']]
+    return closest_match
 
 
-data_filename = 'sc_256_2y_5_test_data.pkl' # 'train_1y_Australia2_test_data.pkl' # 
+# Load model and test dataset
+data_filename = 'train_1y_Australia2_test_data.pkl' # 'sc_256_2y_5_test_data.pkl' # 
 data_name, extension = os.path.splitext(data_filename)
 results = {data_name: {'psnr': [], 'ssim': []}} #,'Set5': {'psnr': [], 'ssim': []}
 
@@ -52,17 +72,16 @@ model.load_state_dict(torch.load('epochs/' + MODEL_NAME))
 
 data_source = 'di-lab'
 data_dir = 'data/%s/' % (data_source)
-test_dir = data_dir + data_filename
-with open(test_dir,'rb') as f:
+with open(f'{data_dir}{data_filename}','rb') as f:
     test_data = pickle.load(f)
 gc.enable()
-test_HR, test_LR = load_data(test_data) # test_data[0], test_data[1]
+test_HR, test_LR, latlon_HR, latlon_LR, time_HR, time_LR = load_data(test_data) # test_data[0], test_data[1]
 test_HR_max = test_HR.max(); test_HR_min = test_HR.min()
 test_LR_max = test_LR.max(); test_LR_min = test_LR.min()
 
 # test_set = TestDatasetFromFolder('data/test', upscale_factor=UPSCALE_FACTOR)
 test_set = TestTensorDataset(test_HR, test_LR, upscale_factor=UPSCALE_FACTOR)
-test_loader = DataLoader(dataset=test_set, num_workers=2, batch_size=1, shuffle=False) # num_workers = 4
+test_loader = DataLoader(dataset=test_set, num_workers=4, batch_size=1, shuffle=False)
 test_bar = tqdm(test_loader, desc='[testing benchmark datasets]')
 
 out_path = 'benchmark_results/di-lab_%s/' % str(UPSCALE_FACTOR)
@@ -77,7 +96,11 @@ else:
             elif os.path.isdir(item_path):
                 shutil.rmtree(item_path)
 
+# Load 'sea' truth
+csv_dir = 'iQuam_20210101-20211231_combined-enti-Australia_new.csv' #'iQuam_20200101-20221231_surface_IndiOcean-right_new.csv'
+df = pd.read_csv(f'{data_dir}{csv_dir}')
 
+# Compare reconstructed image with original hr ground truth
 index = 0
 for lr_image, hr_restore_img, hr_image in test_bar:
     with torch.no_grad():
@@ -118,6 +141,15 @@ for lr_image, hr_restore_img, hr_image in test_bar:
     results[data_name]['ssim'].append(ssim)
     # results[image_name.split('_')[2]]['psnr'].append(psnr)
     # results[image_name.split('_')[2]]['ssim'].append(ssim)
+
+    # compare with 'sea' truth
+    datetime = time_HR[index]
+    closest_match = find_closest_match(df, np.mean(latlon_HR[index],0))
+    print(closest_match)
+    # df['rmse_dist'] = df.apply(lambda row: find_closest_match(row['lat'], row['lon'], np.mean(latlon_HR[index], 0)), axis=1)
+    # min_dist_index = df['rmse_dist'].idxmin()
+    # sst = df.loc[min_dist_index, ['lat', 'lon', 'date', 'sst']]
+
     index += 1
 
 out_path = 'statistics/'

@@ -23,16 +23,16 @@ from loss import GeneratorLoss, compute_gradient_penalty
 from model import Generator, Discriminator_WGAN
 
 parser = argparse.ArgumentParser(description='Train Super Resolution Models')
-parser.add_argument('--epoch_start', default=250, type=int, help='epoch to load from') # 0
-parser.add_argument('--crop_size', default=64, type=int, help='training images crop size') # 88 # 96 # 128
+parser.add_argument('--epoch_start', default=181, type=int, help='epoch to load from') # 0
+parser.add_argument('--crop_size', default=128, type=int, help='training images crop size') # 88 # 96 # 128
 parser.add_argument('--upscale_factor', default=4, type=int, choices=[2, 4, 8], help='super resolution upscale factor')
-parser.add_argument('--num_epochs', default=500, type=int, help='train epoch number') # 30,100,250,500
+parser.add_argument('--num_epochs', default=1000, type=int, help='train epoch number') # 30,100,250,500
 parser.add_argument('--g_learning_rate', default=1e-4, type=float, help='learning rate for generator') # 0.0001
 parser.add_argument('--d_learning_rate', default=1e-5, type=float, help='learning rate for discriminator') # 0.0002
 parser.add_argument('--b1', default=0.0, type=float, help='adam: decay of first order momentum of gradient') # 0.5
 parser.add_argument('--b2', default=0.9, type=float, help='adam: decay of second order momentum of gradient') # 0.999
-parser.add_argument('--decay_epoch', default=200, type=int, help='start lr decay every decay_epoch epochs') # 30,50,70,100
-parser.add_argument('--gamma', default=0.1, type=float, help='multiplicative factor of learning rate decay') # 0.5
+parser.add_argument('--decay_epoch', default=(100,200,300,400,500,600,700,800,900), type=int, help='start lr decay every decay_epoch epochs') # 30,50,70,100
+parser.add_argument('--gamma', default=0.5, type=float, help='multiplicative factor of learning rate decay') # 0.5
 
 def load_data(data):
     data_size = len(data)
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     B2 = opt.b2
     DECAY_EPOCH = opt.decay_epoch
     GAMMA = opt.gamma
-    LAMBDA = 10  # penalty coefficient
+    LAMBDA = 10  # gradient penalty coefficient
 
     use_tensorboard = True
 
@@ -98,11 +98,12 @@ if __name__ == '__main__':
     size_data1 = len(train_data1['HR'])
     size_data2 = len(train_data2['HR']) 
     size_fac = size_data1 // size_data2 # 16 times
+    scale_fac = 12 # to get 3/4
     
     # Create concatenated dataset
-    train_HR, train_LR = ConcatDataset([train_data1['HR'][:size_data1//(size_fac//8)], train_data2['HR']]), \
+    train_HR, train_LR = ConcatDataset([train_data1['HR'][:size_data1//(size_fac//scale_fac)], train_data2['HR']]), \
                             ConcatDataset([train_data1['LR'], train_data2['LR']]) #load_data(train_data)
-    val_HR, val_LR = ConcatDataset([val_data1['HR'][:len(val_data1['HR'])//(size_fac//8)], val_data2['HR']]), \
+    val_HR, val_LR = ConcatDataset([val_data1['HR'][:len(val_data1['HR'])//(size_fac//scale_fac)], val_data2['HR']]), \
                             ConcatDataset([val_data1['LR'], val_data2['LR']]) #load_data(val_data)
     
     # Set data parameters
