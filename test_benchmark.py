@@ -35,6 +35,11 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     
     return R * c
 
+def find_closest_match(df, mean_latlon):
+    df['distance'] = df.apply(lambda row: haversine_distance(row['lat'], row['lon'], mean_latlon[0], mean_latlon[1]), axis=1)
+    closest_match = df.loc[df['distance'].idxmin(), ['lat', 'lon', 'date', 'sst']]
+    return closest_match
+
 def load_data(data):
     data_size = len(data)
     c, patch_hr_h, patch_hr_w = data[0][0][0].shape # need to include channel size allocation
@@ -50,16 +55,11 @@ def load_data(data):
 
     return image_HR, image_LR, latlon_HR, latlon_LR, time_HR, time_LR
 
-def find_closest_match(df, mean_latlon):
-    df['distance'] = df.apply(lambda row: haversine_distance(row['lat'], row['lon'], mean_latlon[0], mean_latlon[1]), axis=1)
-    closest_match = df.loc[df['distance'].idxmin(), ['lat', 'lon', 'date', 'sst']]
-    return closest_match
-
 
 # Load model and test dataset
 data_filename = 'train_1y_Australia2_test_data.pkl' # 'sc_256_2y_5_test_data.pkl' # 
 data_name, extension = os.path.splitext(data_filename)
-results = {data_name: {'psnr': [], 'ssim': []}} #,'Set5': {'psnr': [], 'ssim': []}
+results = {data_name: {'psnr': [], 'ssim': [], 'dist_hr_restore': [], 'dist_hr': []}} #,'Set5': {'psnr': [], 'ssim': []}
 
 UPSCALE_FACTOR = opt.upscale_factor
 MODEL_NAME = opt.model_name
@@ -75,9 +75,9 @@ data_dir = 'data/%s/' % (data_source)
 with open(f'{data_dir}{data_filename}','rb') as f:
     test_data = pickle.load(f)
 gc.enable()
-test_HR, test_LR, latlon_HR, latlon_LR, time_HR, time_LR = load_data(test_data) # test_data[0], test_data[1]
-test_HR_max = test_HR.max(); test_HR_min = test_HR.min()
-test_LR_max = test_LR.max(); test_LR_min = test_LR.min()
+test_HR, test_LR, latlon_HR, latlon_LR, time_HR, time_LR = load_data(test_data)
+test_HR_max = test_HR.max(); test_HR_min = test_HR.min(); test_HR_avg = test_HR.mean()
+test_LR_max = test_LR.max(); test_LR_min = test_LR.min(); test_LR_avg = test_LR.mean()
 
 # test_set = TestDatasetFromFolder('data/test', upscale_factor=UPSCALE_FACTOR)
 test_set = TestTensorDataset(test_HR, test_LR, upscale_factor=UPSCALE_FACTOR)
@@ -119,6 +119,28 @@ for lr_image, hr_restore_img, hr_image in test_bar:
     psnr_bicubic = 10 * log10(1 / mse_bicubic)
     ssim_bicubic = pytorch_ssim.ssim(hr_restore_img, hr_image.data.cpu()).item()
 
+    # save psnr/ssim
+    results[data_name]['psnr'].append(psnr)
+    results[data_name]['ssim'].append(ssim)
+    # results[image_name.split('_')[2]]['psnr'].append(psnr)
+    # results[image_name.split('_')[2]]['ssim'].append(ssim)
+
+    # compare with 'sea' truth
+    _, _, img_w, img_h = hr_restore_img.shape
+    norm_time = time_HR[index] # how to restore normalisation?
+
+    closest_match = find_closest_match(df, np.mean(latlon_HR[index],0))
+    sst = closest_match['sst'] # iQuam sea truth data
+    # print(f"ground_truth: {closest_match['lat']}, {closest_match['lon']}; test_image: {np.mean(latlon_HR[index],0)}")
+    
+    hr_restore_img_sst = hr_restore_img[0][0][img_w//2][img_h//2].numpy() * test_HR_avg.numpy()
+    hr_image_sst = hr_image.data.cpu()[0][0][img_w//2][img_h//2].numpy() * test_HR_avg.numpy()
+    dist_hr_restore_sst = abs(hr_restore_img_sst - sst)
+    dist_hr_sst = abs(hr_image_sst - sst)
+    results[data_name]['dist_hr_restore'].append(dist_hr_restore_sst)
+    results[data_name]['dist_hr'].append(dist_hr_sst)
+
+    # save test images
     test_images = torch.stack(
         [display_transform()(hr_restore_img.squeeze(0)), 
          display_transform()(hr_image.data.cpu().squeeze(0)),
@@ -127,44 +149,40 @@ for lr_image, hr_restore_img, hr_image in test_bar:
     image_name = 'test' + str(index)
     fig, axes = plt.subplots(1, 3, figsize=(20, 20))
     for i, ax in enumerate(axes):
-        im = ax.imshow(image[i].numpy() * test_HR_max.numpy(), cmap='viridis')
+        im = ax.imshow(image[i].numpy() * test_HR_avg.numpy(), cmap='viridis') # test_HR_max
         ax.set_axis_off()
         cax = fig.add_axes([ax.get_position().x1 + 0.005, ax.get_position().y0, 0.02, ax.get_position().height])
         fig.colorbar(im, cax=cax)
-    fig.savefig(out_path + image_name + '_psnr_%.4f_ssim_%.4f_psnrBC_%.4f_ssimBC_%.4f.png' % (psnr, ssim, psnr_bicubic, ssim_bicubic), dpi=300, bbox_inches='tight', pad_inches=0.1)
+    fig.savefig(out_path + image_name + '_psnr_%.4f_ssim_%.4f_psnrBC_%.4f_ssimBC_%.4f_dist_hrR_%.2f_dist_hr_%2f.png' 
+                % (psnr, ssim, psnr_bicubic, ssim_bicubic, dist_hr_restore_sst, dist_hr_sst), 
+                dpi=300, bbox_inches='tight', pad_inches=0.1)
+    plt.close('all')
     # utils.save_image(image, out_path + image_name + '_psnr_%.4f_ssim_%.4f_psnrBC_%.4f_ssimBC_%.4f.png' % (psnr, ssim, psnr_bicubic, ssim_bicubic), padding=5)
     # utils.save_image(image, out_path + image_name.split('.')[0] + '_psnr_%.4f_ssim_%.4f.' % (psnr, ssim) + image_name.split('.')[-1], padding=5) # TODO: change to colour plot
-    plt.close('all')
-
-    # save psnr/ssim
-    results[data_name]['psnr'].append(psnr)
-    results[data_name]['ssim'].append(ssim)
-    # results[image_name.split('_')[2]]['psnr'].append(psnr)
-    # results[image_name.split('_')[2]]['ssim'].append(ssim)
-
-    # compare with 'sea' truth
-    datetime = time_HR[index]
-    closest_match = find_closest_match(df, np.mean(latlon_HR[index],0))
-    print(closest_match)
-    # df['rmse_dist'] = df.apply(lambda row: find_closest_match(row['lat'], row['lon'], np.mean(latlon_HR[index], 0)), axis=1)
-    # min_dist_index = df['rmse_dist'].idxmin()
-    # sst = df.loc[min_dist_index, ['lat', 'lon', 'date', 'sst']]
-
+    
     index += 1
 
 out_path = 'statistics/'
-saved_results = {'psnr': [], 'ssim': []}
+saved_results = {'psnr': [], 'ssim': [], 'dist_hr_restore': [], 'dist_hr': []}
 for item in results.values():
     psnr = np.array(item['psnr'])
     ssim = np.array(item['ssim'])
-    if (len(psnr) == 0) or (len(ssim) == 0):
+    dist_hr_restore_sst = np.array(item['dist_hr_restore'])
+    dist_hr_sst = np.array(item['dist_hr'])
+    if (len(psnr) == 0) or (len(ssim) == 0) or (len(dist_hr_restore_sst) == 0) or (len(dist_hr_sst) == 0):
         psnr = 'No data'
         ssim = 'No data'
+        dist_hr_restore_sst = 'No data'
+        dist_hr_sst = 'No data'
     else:
         psnr = psnr.mean()
         ssim = ssim.mean()
+        dist_hr_restore_sst = dist_hr_restore_sst.mean()
+        dist_hr_sst = dist_hr_sst.mean()
     saved_results['psnr'].append(psnr)
     saved_results['ssim'].append(ssim)
+    saved_results['dist_hr_restore'].append(dist_hr_restore_sst)
+    saved_results['dist_hr'].append(dist_hr_sst)
 saved_results['model'] = MODEL_NAME
 
 data_frame = pd.DataFrame(saved_results, results.keys())
