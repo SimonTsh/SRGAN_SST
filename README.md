@@ -14,7 +14,7 @@ conda install opencv
 ## Datasets
 
 ### Train、Val Dataset
-The train and val datasets are sampled from High-resolution SST data from Himawari satellite and Low-resolution SST data from OSTIA as ground truth.
+The train and val datasets are sampled from High-resolution SST data from Himawari satellite and Low-resolution SST data from OSTIA.
 Train dataset has 11378 images and Val dataset has 2398 images.
 Download the datasets from [here](https://www.ncei.noaa.gov/access/metadata/landing-page/bin/iso?id=gov.noaa.nodc:GHRSST-AHI_H09-STAR-L3C), and then extracts it into `data` directory.
 Augmentation consisting of rotation and horizontal flip can also be performed with data_preprocess.py.
@@ -71,11 +71,11 @@ Epochs with batch size of 64 takes ~5 minute 25 seconds on a NVIDIA GTX 1080Ti G
 
 Left: bicubic interpolation image, Middle: high resolution (original) image, and Right: super resolution generated image (output of WGAN-GP).
 
-- South China Sea_100epochs_1 (PSNR:23.2672; SSIM:0.7947)
+- South China Sea_230epochs_1 (PSNR:23.7097; SSIM:0.8280)
 
 ![Australia](images/3.png)
 
-- South China Sea_100epochs_2 (PSNR:26.3924; SSIM:0.7370)
+- South China Sea_230epochs_2 (PSNR:26.9008; SSIM:0.7585)
 
 ![Australia](images/4.png)
 
