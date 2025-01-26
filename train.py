@@ -15,20 +15,21 @@ from torch.optim.lr_scheduler import MultiStepLR
 from tqdm import tqdm
 
 import pytorch_ssim
-from data_utils import TrainTensorDataset, ValTensorDataset, display_transform # ,TrainDatasetFromFolder, ValDatasetFromFolder
+from data_utils import TrainTensorDataset, ValTensorDataset
 from loss import GeneratorLoss
 from model import Generator, Discriminator
 
 parser = argparse.ArgumentParser(description='Train Super Resolution Models')
-parser.add_argument('--epoch_start', default=100, type=int, help='epoch to load from') # 0
-parser.add_argument('--crop_size', default=128, type=int, help='training images crop size') # 64 # 88 # 96 # 128
+parser.add_argument('--epoch_start', default=0, type=int, help='epoch to load from') # 0
+parser.add_argument('--crop_size', default=64, type=int, help='training images crop size') # 64 # 88 # 96 # 128
 parser.add_argument('--upscale_factor', default=4, type=int, choices=[2, 4, 8], help='super resolution upscale factor')
-parser.add_argument('--num_epochs', default=250, type=int, help='train epoch number') # 30 # 100
-parser.add_argument('--learning_rate', default=4e-4, type=float, help='learning rate for generator and discriminator') # 0.0002
+parser.add_argument('--num_epochs', default=150, type=int, help='train epoch number') # 30 # 100
+parser.add_argument('--learning_rate', default=1e-3, type=float, help='learning rate for generator and discriminator') # 0.0002 # 0.0004 # 0.0008
 parser.add_argument('--b1', default=0.5, type=float, help='adam: decay of first order momentum of gradient')
-parser.add_argument('--b2', default=0.999, type=float, help='adam: decay of second order momentum of gradient')
+parser.add_argument('--b2', default=0.9, type=float, help='adam: decay of second order momentum of gradient') # 0.999
 parser.add_argument('--decay_epoch', default=100, type=int, help='start lr decay every decay_epoch epochs') # 30 # 50
 parser.add_argument('--gamma', default=0.5, type=float, help='multiplicative factor of learning rate decay') # 0.1
+parser.add_argument('--dataset', default='combined', type=str, help='select from aus, scs, combined')
 
 def load_data(data):
     data_size = len(data)
@@ -43,7 +44,7 @@ def load_data(data):
     return image_HR, image_LR
 
 def open_pkl_file(data_dir, data_source, data_type):
-    data_filepath = data_dir + f'{data_source}_{data_type}.pkl'
+    data_filepath = data_dir + f'{data_source}_{data_type}_{CROP_SIZE}.pkl'
     with open(data_filepath,'rb') as f:
         data = pickle.load(f)
     
@@ -62,16 +63,9 @@ if __name__ == '__main__':
     B2 = opt.b2
     DECAY_EPOCH = opt.decay_epoch
     GAMMA = opt.gamma
+    DATASET = opt.dataset
 
-    data_dir = 'data/di-lab/'
-    data_source1 = 'train_1y_Australia2'
-    train_data1 = open_pkl_file(data_dir, data_source1, 'train_data')
-    val_data1 = open_pkl_file(data_dir, data_source1, 'val_data')
-
-    data_source2 = 'sc_256_2y_5'
-    train_data2 = open_pkl_file(data_dir, data_source2, 'train_data')
-    val_data2 = open_pkl_file(data_dir, data_source2, 'val_data')
-
+    # clean folder for saving results
     out_path = 'training_results/SRF_' + str(UPSCALE_FACTOR) + '/'
     if not os.path.exists(out_path):
         os.makedirs(out_path)
@@ -83,25 +77,50 @@ if __name__ == '__main__':
                     os.unlink(item_path)
                 elif os.path.isdir(item_path):
                     shutil.rmtree(item_path)
+        else:
+            print('directory is empty, nothing to remove')
+            
+    # load train, val dataset
+    data_dir = 'data/di-lab/'
+    if DATASET == 'aus' or DATASET == 'combined':
+        data_source1 = 'train_1y_Australia2'
+        train_data1 = open_pkl_file(data_dir, data_source1, 'train_data')
+        val_data1 = open_pkl_file(data_dir, data_source1, 'val_data')
+        size_data1 = len(train_data1['HR'])
+    
+    if DATASET == 'scs' or DATASET == 'combined':
+        data_source2 = 'sc_256_2y_5'
+        train_data2 = open_pkl_file(data_dir, data_source2, 'train_data')
+        val_data2 = open_pkl_file(data_dir, data_source2, 'val_data')
+        size_data2 = len(train_data2['HR'])
 
     gc.enable()
 
-    # Set proportion for balancing dataset
-    size_data1 = len(train_data1['HR'])
-    size_data2 = len(train_data2['HR']) 
-    size_fac = size_data1 // size_data2 # 16 times
-
-    train_HR, train_LR = ConcatDataset([train_data1['HR'][:size_data1//(size_fac//8)], train_data2['HR']]), \
-                            ConcatDataset([train_data1['LR'], train_data2['LR']]) #load_data(train_data)
-    val_HR, val_LR = ConcatDataset([val_data1['HR'][:len(val_data1['HR'])//(size_fac//8)], val_data2['HR']]), \
-                            ConcatDataset([val_data1['LR'], val_data2['LR']]) #load_data(val_data)
+    if DATASET == 'combined':
+        # For combined dataset: set proportion for balancing
+        size_fac = size_data1 // size_data2 # 16 times
+        train_HR, train_LR = ConcatDataset([train_data1['HR'][:size_data1//(size_fac//8)], train_data2['HR']]), \
+                                ConcatDataset([train_data1['LR'], train_data2['LR']]) #load_data(train_data)
+        val_HR, val_LR = ConcatDataset([val_data1['HR'][:len(val_data1['HR'])//(size_fac//8)], val_data2['HR']]), \
+                                ConcatDataset([val_data1['LR'], val_data2['LR']]) #load_data(val_data)
+        del train_data1, val_data1, train_data2, val_data2
+    elif DATASET == 'aus':
+        # For single dataset
+        size_fac = 1
+        train_HR, train_LR = train_data1['HR'][:size_data1//size_fac], train_data1['LR'][:size_data1//size_fac]
+        val_HR, val_LR = val_data1['HR'], val_data1['LR']
+        del train_data1, val_data1
+    elif DATASET == 'scs':
+        # For single dataset
+        train_HR, train_LR = train_data2['HR'], train_data2['LR']
+        val_HR, val_LR = val_data2['HR'], val_data2['LR']
+        del train_data2, val_data2
     
-    train_set = TrainTensorDataset(train_HR, crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
-    val_set = ValTensorDataset(val_HR, upscale_factor=UPSCALE_FACTOR)
-    
+    # Set data parameters, load into dataloader
+    train_set = TrainTensorDataset(train_HR, train_LR, crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
+    val_set = ValTensorDataset(val_HR, val_LR, upscale_factor=UPSCALE_FACTOR)
     train_loader = DataLoader(train_set, num_workers=0, batch_size=128, shuffle=True) # batch_size=64, # 128, # num_workers=4
     val_loader = DataLoader(val_set, num_workers=0, batch_size=1, shuffle=False) # num_workers=4
-    del train_set, val_set, train_HR, train_LR, val_HR, val_LR, train_data1, train_data2, val_data1, val_data2
 
     # train_set = TrainDatasetFromFolder('data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
     # val_set = ValDatasetFromFolder('data/DIV2K_valid_HR', upscale_factor=UPSCALE_FACTOR)
@@ -145,7 +164,7 @@ if __name__ == '__main__':
             batch_size = data.size(0)
             running_results['batch_sizes'] += batch_size
 
-            ############################
+            ###########################
             # (1) Update G network: minimize 1-D(G(z)) + Perception Loss + Image Loss + TV Loss
             ###########################
             real_img = target
@@ -218,9 +237,9 @@ if __name__ == '__main__':
                         validating_results['psnr'], validating_results['ssim']))
         
                 val_images.extend(
-                    [display_transform()(val_hr_restore.squeeze(0)), 
-                     display_transform()(hr.data.cpu().squeeze(0)),
-                     display_transform()(sr.data.cpu().squeeze(0))])
+                    [(val_hr_restore.squeeze(0)), 
+                     (hr.data.cpu().squeeze(0)),
+                     (sr.data.cpu().squeeze(0))])
             val_images = torch.stack(val_images)
             # Ensure we have a multiple of 15 images
             if val_images.size(0) % 15 != 0:

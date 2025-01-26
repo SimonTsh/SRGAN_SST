@@ -30,17 +30,11 @@ def move_hr_pngs(source_folder, destination_folder):
             print(f"Moved: {filename}")
 
 def load_data(data):
-    # data_size = len(data)
-    # c, patch_hr_h, patch_hr_w = data[0][0].shape # need to include channel size allocation
-    # c, patch_lr_h, patch_lr_w = data[0][7].shape
-    image_HR_interp = [] #torch.empty(data_size, c, patch_hr_h, patch_hr_w, 4, 1)
-    image_HR        = [] #torch.empty(data_size, c, patch_hr_h, patch_hr_w, 4, 1)
-    image_LR        = [] #torch.empty(data_size, c, patch_lr_h, patch_lr_w)
+    image_HR_interp = []
+    image_HR        = []
+    image_LR        = []
 
-    for index, value in enumerate(data):
-        # image_HR_interp[index,:,:,:,:,:] = [value[0],value[2],value[3]]
-        # image_HR[index,:,:,:,:,:] = [value[1],value[2],value[3]]
-        # image_HR_interp[index,:,:,:], image_HR[index,:,:,:], *arg = value
+    for _, value in enumerate(data):
         image_HR_interp.append([value[0], value[2], value[3]]) # patch, coordinates, norm_time
         image_HR.append([value[1], value[2], value[3]])
         image_LR.append([value[7][0,:,:], value[2], value[3]]) # since LR has different image sizes
@@ -56,22 +50,40 @@ def extract_data(dataset):
 def rearrange_dict_arrays(original_dict, new_order):
     rearranged_dict = {}
     for key, array in original_dict.items():
-        rearranged_dict[key] = torch.from_numpy(array[new_order])
+        rearranged_dict[key] = torch.from_numpy(array[new_order,:,:])
     return rearranged_dict
 
+def display_images(images, label):
+    num_images = 16
+    images = images[label][:num_images] # 'HR'
+
+    # Create a grid of images
+    rows, cols = round(np.sqrt(num_images)), round(np.sqrt(num_images))
+    fig, axes = plt.subplots(rows, cols, figsize=(20, 20))
+
+    for i, ax in enumerate(axes.flat):
+        if i < len(images):
+            ax.imshow(images[i].cpu().numpy(), cmap='viridis')
+        ax.axis('off')
+    # grid = vutils.make_grid(images, nrow=4, normalize=True, padding=2)
+    # grid = grid.permute(1, 2, 0) # Convert to numpy and adjust dimensions
+
+    # Display the grid
+    plt.tight_layout()
+    plt.savefig(source_folder+f'{root}_{label}_plot.png')
 
 ## Define parameters
 to_visualise = 1 # 0 or 1
-source_folder = "data/di-lab/" # upsample factor: 2 or 4
+source_folder = 'data/di-lab/' # upsample factor: 2 or 4
 # destination_folder = "data/test/data" # HR: target, LR: data
 # move_hr_pngs(source_folder, destination_folder)
 
 ## To separate dataset into train, test, val
-# Load the data from the .pkl file
-data_filename = 'sc_256_2y_5.pkl' # 'SCS_data.zip' # 'train_1y_Australia2.pkl' # 
+data_filename = 'train_1y_Australia2.pkl' # 'sc_256_2y_5.pkl' # 'SCS_data.zip' # 
 root, extension = os.path.splitext(data_filename)
 data_dir = source_folder + data_filename
 
+# Load the data from the .pkl file
 if extension == '.pkl':
     with open(data_dir, 'rb') as f:
         data = pickle.load(f)
@@ -82,20 +94,24 @@ else:
     KeyError('Not a recognised file type')
 
 data_HR_interp, data_HR, data_LR = load_data(data)
-min_LR_size = min({len(data_lr[0]) for data_lr in data_LR})
+min_HR_interp_size = min({len(data[0][0]) for data in data_HR_interp})
+min_HR_size = min({len(data[0][0]) for data in data_HR})
+min_LR_size = min({len(data[0]) for data in data_LR})
 # data_LR_cut = torch.empty(data_HR.shape[0], data_HR.shape[1], min_LR_size, min_LR_size)
 # for i, data_lr in enumerate(data_LR):
 #     data_LR_cut[i,0,:,:] = data_lr[:min_LR_size,:min_LR_size]
 print('data loaded successfully')
 data = {
     'HR': data_HR,
-    'LR': data_LR # data_LR_cut
+    'LR': data_LR, # data_LR_cut
+    'HR_interp': data_HR_interp
 }
 
 # Set a seed for reproducibility
 torch.manual_seed(42)
+downscale_factor = 1 # e.g. 256 --> 64: 4; 256 --> 256: 1
 # Define the sizes for train, validation, and test sets
-dataset = CustomDataset(data['HR'], data['LR'])
+dataset = CustomDataset(data['HR'], data['LR'], data['HR_interp'], downscale_factor)
 # dataset = TensorDataset(data['HR'], data['LR'])
 total_size = len(dataset)
 train_size = int(0.7 * total_size)  # 70% for training
@@ -110,22 +126,22 @@ print('data split successfully')
 train_augment = AugmentedDataset(train_dataset)
 train_combi = {
     'HR': [],
-    'LR': []
+    'LR': [],
 }
-for batch_idx, (data_combi_HR, data_combi_LR) in enumerate(train_augment):
+for batch_idx, (data_combi_HR, data_combi_LR_interp) in enumerate(train_augment):
     train_combi['HR'].append(data_combi_HR) # no coordinates, time argument
-    train_combi['LR'].append(data_combi_LR[:,:min_LR_size,:min_LR_size])
+    train_combi['LR'].append(data_combi_LR_interp) # .append(data_combi_LR[:,:min_LR_size,:min_LR_size])
     # print(f"Batch {batch_idx}: Data HR shape: {data_HR.shape}, Data (LR) shape: {data_LR}")
 print('train data augmented successfully')
 
 val_augment = AugmentedDataset(val_dataset)
 val_combi = {
     'HR': [],
-    'LR': []
+    'LR': [],
 }
-for batch_idx, (data_combi_HR, data_combi_LR) in enumerate(val_augment):
+for batch_idx, (data_combi_HR, data_combi_LR_interp) in enumerate(val_augment):
     val_combi['HR'].append(data_combi_HR)
-    val_combi['LR'].append(data_combi_LR[:,:min_LR_size,:min_LR_size])
+    val_combi['LR'].append(data_combi_LR_interp) #.append(data_combi_LR[:,:min_LR_size,:min_LR_size])
 print('val data augmented successfully')
 # train_combined = torch.cat((train_dataset, train_augment.dataset), dim=0) # return TypeError: expected Tensor as element 0 in argument 0, but got Subset
 # val_combined = torch.cat((val_dataset, val_augment.dataset), dim=0)
@@ -147,35 +163,30 @@ indices = np.random.permutation(num_samples*multi_fac)
 val_data = rearrange_dict_arrays(val_combi, indices)
 print('val data shuffled successfully')
 
-test_data = test_dataset
+test_combi = {
+    'HR': torch.empty(test_size, min_HR_size // downscale_factor, min_HR_size // downscale_factor),
+    'LR': torch.empty(test_size, min_LR_size // downscale_factor, min_LR_size // downscale_factor),
+    'HR_interp': torch.empty(test_size, min_HR_interp_size // downscale_factor, min_HR_interp_size // downscale_factor)
+}
+for batch_idx, (data_combi_HR, data_combi_LR, data_combi_HR_interp) in enumerate(test_dataset):
+    test_combi['HR'][batch_idx] = data_combi_HR
+    test_combi['LR'][batch_idx] = data_combi_LR
+    test_combi['HR_interp'][batch_idx] = data_combi_HR_interp[0][0]
+test_data = test_combi
 print('test data stored successfully')
 
 if to_visualise:
     # To visualise a subset of images (e.g., first 16)
-    num_images = 16
-    images = train_data['HR'][:num_images]
+    display_images(train_data, 'HR')
+    display_images(train_data, 'LR')
 
-    # Create a grid of images
-    rows, cols = round(np.sqrt(num_images)), round(np.sqrt(num_images))
-    fig, axes = plt.subplots(rows, cols, figsize=(20, 20))
-
-    for i, ax in enumerate(axes.flat):
-        if i < len(images):
-            ax.imshow(images[i].cpu().numpy(), cmap='viridis')
-        ax.axis('off')
-    # grid = vutils.make_grid(images, nrow=4, normalize=True, padding=2)
-    # grid = grid.permute(1, 2, 0) # Convert to numpy and adjust dimensions
-
-    # Display the grid
-    plt.tight_layout()
-    plt.savefig(source_folder+f'{root}_plot.png')
 
 # Save each set as a separate .pkl file
-with open(source_folder+f'{root}_train_data.pkl', 'wb') as f:
+with open(source_folder+f'{root}_train_data_{min_HR_size // downscale_factor}.pkl', 'wb') as f:
     pickle.dump(train_data, f)
 
-with open(source_folder+f'{root}_val_data.pkl', 'wb') as f:
+with open(source_folder+f'{root}_val_data_{min_HR_size // downscale_factor}.pkl', 'wb') as f:
     pickle.dump(val_data, f)
 
-with open(source_folder+f'{root}_test_data.pkl', 'wb') as f:
+with open(source_folder+f'{root}_test_data_{min_HR_size // downscale_factor}.pkl', 'wb') as f:
     pickle.dump(test_data, f)

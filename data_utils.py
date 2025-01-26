@@ -5,6 +5,7 @@ from PIL import Image
 import torch
 from torch.utils.data.dataset import Dataset
 from torchvision.transforms import Compose, RandomCrop, ToTensor, ToPILImage, CenterCrop, Resize, RandomRotation, RandomHorizontalFlip
+import torch.nn.functional as F
 
 
 def is_image_file(filename):
@@ -28,11 +29,10 @@ def train_lr_transform(crop_size, upscale_factor):
         ToTensor()
     ])
 
-
-def train_hr_transformTensor(crop_size):
+def train_hr_transformTensor():
     return Compose([
         ToPILImage(),
-        RandomCrop(crop_size),
+        # RandomCrop(crop_size),
         ToTensor()
     ])
 
@@ -43,7 +43,6 @@ def train_lr_transformTensor(crop_size, upscale_factor):
         ToTensor()
     ])
 
-
 def display_transform():
     return Compose([
         ToPILImage(),
@@ -52,8 +51,7 @@ def display_transform():
         ToTensor()
     ])
 
-
-def transform():
+def augment_transform():
     return Compose([
         ToPILImage(),
         RandomRotation((-180, 180)),  # Random rotation of full possible 360deg
@@ -61,6 +59,90 @@ def transform():
         ToTensor()
         # transforms.FiveCrop(224),  # Five crop
 ])
+
+def augment_tensor(tensor):
+    # Ensure input is a 4D tensor [B, C, H, W]
+    if tensor.dim() == 2:
+        tensor = tensor.unsqueeze(0).unsqueeze(0)
+    elif tensor.dim() == 3:
+        tensor = tensor.unsqueeze(0)
+    
+    # Random rotation
+    angle = torch.rand(1) * 360 - 180  # Random angle between -180 and 180
+    tensor = rotate_tensor(tensor, angle)
+    
+    # Random horizontal flip
+    if torch.rand(1) > 0.5:
+        tensor = torch.flip(tensor, [3])  # Flip along the width dimension
+    
+    # Remove batch dimension if it was added
+    if tensor.dim() == 4:
+        tensor = tensor.squeeze(0).squeeze(0)
+    elif tensor.dim() == 3:
+        tensor = tensor.squeeze(0)
+    
+    return tensor
+
+def rotate_tensor(tensor, angle):
+    # Convert angle to radians
+    angle = angle * torch.pi / 180
+    
+    # Create affine grid for rotation
+    theta = torch.tensor([
+        [torch.cos(angle), -torch.sin(angle), 0],
+        [torch.sin(angle), torch.cos(angle), 0]
+    ], dtype=tensor.dtype).unsqueeze(0)
+    
+    grid = F.affine_grid(theta, tensor.size(), align_corners=False)
+    
+    # Apply rotation using grid_sample
+    rotated = F.grid_sample(tensor, grid, align_corners=False)
+    
+    return rotated
+
+def center_crop_tensor(tensor, crop_size):
+    if isinstance(crop_size, int):
+        crop_size = (crop_size, crop_size)
+    
+    h, w = tensor.shape
+    th, tw = crop_size
+    
+    i = int(round((h - th) / 2.))
+    j = int(round((w - tw) / 2.))
+    
+    return tensor[i:i+th, j:j+tw]
+
+def resize_tensor(tensor, scale_factor, mode='bicubic'):
+    # Ensure input is a 4D tensor [B, C, H, W]
+    if tensor.dim() == 2:
+        tensor = tensor.unsqueeze(0).unsqueeze(0)
+    elif tensor.dim() == 3:
+        tensor = tensor.unsqueeze(0)
+    
+    # Calculate new size
+    _, _, h, w = tensor.shape
+    new_h = int(h / scale_factor)
+    new_w = int(w / scale_factor)
+    
+    # Perform interpolation
+    resized = F.interpolate(tensor, size=(new_h, new_w), mode=mode, align_corners=False)
+    
+    # Remove batch dimension if it was added
+    if resized.dim() == 4:
+        resized = resized.squeeze(0).squeeze(0)
+    elif resized.dim() == 3:
+        resized = resized.squeeze(0)
+    
+    return resized
+
+def normalize_to_01(tensor):
+    min_val = tensor.min()
+    max_val = tensor.max()
+    return (tensor - min_val) / (max_val - min_val)
+
+def denormalize(tensor, original_min, original_max):
+    return tensor * (original_max - original_min) + original_min
+
 
 class TrainDatasetFromFolder(Dataset):
     def __init__(self, dataset_dir, crop_size, upscale_factor):
@@ -79,20 +161,24 @@ class TrainDatasetFromFolder(Dataset):
         return len(self.image_filenames)
 
 class TrainTensorDataset(Dataset):
-    def __init__(self, dataset, crop_size, upscale_factor):
+    def __init__(self, data_hr, data_lr, crop_size, upscale_factor):
         super(TrainTensorDataset, self).__init__()
-        self.dataset = dataset
-        crop_size = calculate_valid_crop_size(crop_size, upscale_factor)
-        self.hr_transform = train_hr_transformTensor(crop_size)
-        self.lr_transform = train_lr_transformTensor(crop_size, upscale_factor)
+        self.data_hr = data_hr
+        self.data_lr = data_lr
+        self.crop_size = crop_size
+        self.upscale_factor = upscale_factor
+        # crop_size = calculate_valid_crop_size(crop_size, upscale_factor)
+        # self.hr_transform = train_hr_transformTensor()
+        # self.lr_transform = train_lr_transformTensor(crop_size, upscale_factor)
 
     def __getitem__(self, index):
-        hr_image = self.hr_transform(self.dataset[index]) # already ToPILImage() inside transform function
-        lr_image = self.lr_transform(hr_image)
-        return lr_image, hr_image
+        hr_image = normalize_to_01(self.data_hr[index])
+        lr_image = resize_tensor(hr_image, self.upscale_factor, mode='bicubic')
+        # lr_image = F.interpolate(hr_image.unsqueeze(0).unsqueeze(0), size=(self.crop_size // self.upscale_factor, self.crop_size // self.upscale_factor), mode='bicubic', align_corners=False)
+        return lr_image.unsqueeze(0), hr_image.unsqueeze(0)
     
     def __len__(self):
-        return len(self.dataset)
+        return len(self.data_hr)
     
 
 class ValDatasetFromFolder(Dataset):
@@ -116,26 +202,28 @@ class ValDatasetFromFolder(Dataset):
         return len(self.image_filenames)
 
 class ValTensorDataset(Dataset):
-    def __init__(self, dataset, upscale_factor):
+    def __init__(self, data_hr, data_lr, upscale_factor):
         super(ValTensorDataset, self).__init__()
-        self.dataset = dataset
+        self.data_hr = data_hr
+        self.data_lr = data_lr
         self.upscale_factor = upscale_factor
 
     def __getitem__(self, index):
-        hr_image = self.dataset[index]
+        hr_image = normalize_to_01(self.data_hr[index])
         w, h = hr_image.size()
-        crop_size = calculate_valid_crop_size(min(w, h), self.upscale_factor)
-        lr_scale = Resize(crop_size // self.upscale_factor, interpolation=Image.BICUBIC)
-        hr_scale = Resize(crop_size, interpolation=Image.BICUBIC)
-
-        hr_image = ToPILImage()(hr_image)
-        hr_image = CenterCrop(crop_size)(hr_image)
-        lr_image = lr_scale(hr_image)
-        hr_restore_img = hr_scale(lr_image)
-        return ToTensor()(lr_image), ToTensor()(hr_restore_img), ToTensor()(hr_image)
+        # hr_scale = Resize(w, interpolation=Image.BICUBIC)
+        # lr_scale = Resize(w // self.upscale_factor, interpolation=Image.BICUBIC)
+        # crop_size = calculate_valid_crop_size(min(w, h), self.upscale_factor)
+        
+        # hr_image = CenterCrop(crop_size)(hr_image)
+        # hr_image = ToPILImage()(hr_image)
+        # lr_image = F.interpolate(hr_image.unsqueeze(0).unsqueeze(0), size=(w // self.upscale_factor, h // self.upscale_factor), mode='bicubic', align_corners=False)
+        lr_image = resize_tensor(hr_image, self.upscale_factor, mode='bicubic')
+        hr_restore_img = F.interpolate(lr_image.unsqueeze(0).unsqueeze(0), size=(w, h), mode='bicubic', align_corners=False)
+        return lr_image.unsqueeze(0), hr_restore_img.squeeze(0), hr_image.unsqueeze(0)
 
     def __len__(self):
-        return len(self.dataset)
+        return len(self.data_hr)
     
     
 class TestDatasetFromFolder(Dataset):
@@ -161,57 +249,84 @@ class TestDatasetFromFolder(Dataset):
         return len(self.lr_filenames)
     
 class TestTensorDataset(Dataset):
-    def __init__(self, hr_data, lr_data, upscale_factor):
+    def __init__(self, hr_data, lr_data, upscale_factor, crop_size):
         super(TestTensorDataset, self).__init__()
         self.lr_data = lr_data
         self.hr_data = hr_data
         self.upscale_factor = upscale_factor
+        self.crop_size = crop_size
 
     def __getitem__(self, index):
-        lr_image = self.lr_data[index]
-        hr_image = self.hr_data[index]
-        _, w_lr, h_lr = lr_image.size()
-        _, w_hr, h_hr = hr_image.size()
+        lr_image = normalize_to_01(self.lr_data[index])
+        hr_image = normalize_to_01(self.hr_data[index])
+        w_lr, h_lr = lr_image.size()
+        w_hr, h_hr = hr_image.size()
+        # lr_image = ToPILImage()(lr_image)
+        # hr_image = ToPILImage()(hr_image)
 
-        lr_image = ToPILImage()(lr_image)
-        hr_image = ToPILImage()(hr_image)
-        lr_image = hr_image.resize((int(w_hr / self.upscale_factor), int(h_hr / self.upscale_factor)), Image.LANCZOS)
-        
-        # hr_scale = Resize((self.upscale_factor * w_lr, self.upscale_factor * h_lr), interpolation=Image.BICUBIC)
-        hr_scale = Resize((w_hr, h_hr), interpolation=Image.BICUBIC)
-        hr_restore_img = hr_scale(lr_image)
+        # check for image size consistency
+        if w_hr != self.crop_size:
+            # hr_image = CenterCrop(self.crop_size)(hr_image)
+            hr_image = center_crop_tensor(hr_image, self.crop_size)
+            w_hr, h_hr = hr_image.size()
+        if w_lr != (self.crop_size // 4): # given 256 --> 64
+            lr_image = center_crop_tensor(lr_image, self.crop_size // 4)
+            w_lr, l_hr = lr_image.size()
+        lr_image = resize_tensor(hr_image, self.upscale_factor, mode='bicubic')
+        hr_restore_img = F.interpolate(lr_image.unsqueeze(0).unsqueeze(0), size=(w_hr, h_hr), mode='bicubic', align_corners=False)
+        # hr_scale = Resize((self.upscale_factor * w_lr, self.upscale_factor * h_lr), interpolation=Image.BICUBIC        
+        # hr_scale = Resize((w_hr, h_hr), interpolation=Image.BICUBIC)
+        # hr_restore_img = hr_scale(lr_image)
 
-        return ToTensor()(lr_image), ToTensor()(hr_restore_img), ToTensor()(hr_image)
+        return lr_image.unsqueeze(0), hr_restore_img.squeeze(0), hr_image.unsqueeze(0)
 
     def __len__(self):
-        return len(self.lr_data)
+        return len(self.hr_data)
 
 
 class CustomDataset(Dataset):
-    def __init__(self, data_list1, data_list2):
-        assert len(data_list1) == len(data_list2), "Both lists must have the same length"
-        self.data1 = data_list1
-        self.data2 = data_list2
+    def __init__(self, hr_data, lr_data, hr_interp_data, downscale_factor):
+        assert len(hr_data) == len(lr_data) == len(hr_interp_data), "All lists must have the same length"
+        self.hr_data = hr_data
+        self.lr_data = lr_data
+        self.hr_interp_data = hr_interp_data
+        self.downscale_factor = downscale_factor
 
+    def __getitem__(self, index):
+        lr_image = self.lr_data[index][0]
+        hr_image = self.hr_data[index][0]
+        hr_interp_image = self.hr_interp_data[index][0]
+
+        _, w, h = hr_image.size()
+        hr_crop_size = min(w, h) // self.downscale_factor
+        w, h = lr_image.size()
+        lr_crop_size = min(w, h) // self.downscale_factor
+        
+        hr_image = CenterCrop(hr_crop_size)(hr_image)
+        lr_image = CenterCrop(lr_crop_size)(hr_image)
+        hr_interp_image = CenterCrop(hr_crop_size)(hr_interp_image)
+
+        return hr_image, lr_image, hr_interp_image
+    
     def __len__(self):
-        return len(self.data1)
-
-    def __getitem__(self, idx):
-        return self.data1[idx], self.data2[idx]
+        return len(self.hr_data)
 
 class AugmentedDataset:
     def __init__(self, dataset):
         self.dataset = dataset
 
     def __iter__(self):
-        for data_HR, data_LR in self.dataset:
-            data_aug_HR = transform()(data_HR[0])
-            data_aug_LR = transform()(data_LR[0])
+        for data_HR, data_LR, data_HR_interp in self.dataset:
+            data_aug_HRs = augment_tensor(torch.cat((normalize_to_01(data_HR),normalize_to_01(data_HR_interp))))
+            data_aug_HR = data_aug_HRs[0] # augment_tensor(normalize_to_01(data_HR)) # augment_transform()(data_HR)
+            data_aug_HR_interp = data_aug_HRs[1] # augment_tensor(normalize_to_01(data_HR_interp)) # augment_transform()(data_HR_interp)
+            # data_aug_LR = augment_tensor(normalize_to_01(data_LR)) # augment_transform()(data_LR)
 
-            data_combi_HR = torch.cat((data_HR[0], data_aug_HR), dim=0)
-            data_combi_LR = torch.cat((torch.unsqueeze(data_LR[0],0), data_aug_LR), dim=0)
+            data_combi_HR = torch.cat((data_HR, denormalize(data_aug_HR.unsqueeze(0), data_HR.min(), data_HR.max())), dim=0)
+            data_combi_HR_interp = torch.cat((data_HR_interp, denormalize(data_aug_HR_interp.unsqueeze(0), data_aug_HR_interp.min(), data_aug_HR_interp.max())), dim=0)
+            # data_combi_LR = torch.cat((data_LR, denormalize(data_aug_LR.unsqueeze(0), data_LR.min(), data_LR.max())), dim=0)
             
-            yield data_combi_HR, data_combi_LR
+            yield data_combi_HR, data_combi_HR_interp
 
     def __len__(self):
         return len(self.dataset)
