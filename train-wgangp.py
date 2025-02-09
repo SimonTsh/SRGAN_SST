@@ -25,14 +25,15 @@ parser = argparse.ArgumentParser(description='Train Super Resolution Models')
 parser.add_argument('--epoch_start', default=0, type=int, help='epoch to load from') # 0
 parser.add_argument('--crop_size', default=64, type=int, help='training images crop size') # 88 # 96 # 128
 parser.add_argument('--upscale_factor', default=4, type=int, choices=[2, 4, 8], help='super resolution upscale factor')
-parser.add_argument('--num_epochs', default=200, type=int, help='train epoch number') # 30,100,250,500
+parser.add_argument('--num_epochs', default=150, type=int, help='train epoch number') # 30,100,250,500
 parser.add_argument('--g_learning_rate', default=1e-3, type=float, help='learning rate for generator') # 0.0001
 parser.add_argument('--d_learning_rate', default=1e-4, type=float, help='learning rate for discriminator') # 0.00001
-parser.add_argument('--b1', default=0.0, type=float, help='adam: decay of first order momentum of gradient') # 0.5
+parser.add_argument('--b1', default=0.1, type=float, help='adam: decay of first order momentum of gradient') # 0.0 # 0.5
 parser.add_argument('--b2', default=0.9, type=float, help='adam: decay of second order momentum of gradient') # 0.999
-parser.add_argument('--decay_epoch', default=100, type=int, help='start lr decay every decay_epoch epochs') # 30,50,70,100
+parser.add_argument('--decay_epoch', default=50, type=int, help='start lr decay every decay_epoch epochs') # 30,50,70,100
 parser.add_argument('--gamma', default=0.5, type=float, help='multiplicative factor of learning rate decay') # 0.5
-parser.add_argument('--dataset', default='combined', type=str, help='select from aus, scs, combined')
+parser.add_argument('--dataset', default='aus', type=str, help='select from aus, scs, combined')
+parser.add_argument('--augmentation', default='flipRotate', type=str, help='select from original: no aug, flipOnly: x flip, flipRotate: x flip + [0,360] rotate')
 
 def load_data(data):
     data_size = len(data)
@@ -47,9 +48,11 @@ def load_data(data):
     return image_HR, image_LR
 
 def open_pkl_file(data_dir, data_source, data_type):
-    data_filepath = data_dir + f'{data_source}_{data_type}_{CROP_SIZE}.pkl'
+    data_type = data_type.split('_')[0]
+    data_filepath = data_dir + f'{data_source}_{data_type}_{AUGMENTATION}_data_{CROP_SIZE}.pkl'
     with open(data_filepath,'rb') as f:
         data = pickle.load(f)
+        print(f'loaded {data_filepath}...')
     
     return data
 
@@ -69,6 +72,7 @@ if __name__ == '__main__':
     GAMMA = opt.gamma
     LAMBDA = 10  # gradient penalty coefficient
     DATASET = opt.dataset
+    AUGMENTATION = opt.augmentation
 
     use_tensorboard = True
 
@@ -192,9 +196,7 @@ if __name__ == '__main__':
             
             g_loss = generator_criterion(fake_out, fake_img, real_img)
             g_loss.backward()
-
             optimizerG.step()
-            schedulerG.step()
 
             ############################
             # (2) Update D network: maximize D(x)-1-D(G(z))
@@ -208,22 +210,18 @@ if __name__ == '__main__':
 
                 # Backward pass for discriminator
                 # d_loss.backward()
-
                 params = [p for p in netD.parameters() if p.requires_grad]
                 grads = torch.autograd.grad(d_loss, params, create_graph=True, retain_graph=True)
-
                 for param, grad in zip(params, grads):
                     param.data = param.data.contiguous()
-                    
                     param.grad = grad # manually set gradients for each parameter in order to retain graph
                     if param.grad is not None:
                         param.grad.data = param.grad.data.contiguous()
                 
                 optimizerD.step()
-                schedulerD.step()
                 
-                fake_img = netG(z)
-                fake_out = netD(fake_img).mean()
+                # fake_img = netG(z)
+                # fake_out = netD(fake_img).mean()
 
                 # loss for current batch before optimization 
                 running_results['g_loss'] += g_loss.item() * batch_size
@@ -236,10 +234,9 @@ if __name__ == '__main__':
                 epoch, NUM_EPOCHS, running_results['d_loss'] / running_results['batch_sizes'],
                 running_results['g_loss'] / running_results['batch_sizes'],
                 running_results['d_score'] / running_results['batch_sizes'],
-                running_results['g_score'] / running_results['batch_sizes']))
-    
+                running_results['g_score'] / running_results['batch_sizes']))        
+
         netG.eval()
-        
         with torch.no_grad():
             val_bar = tqdm(val_loader)
             validating_results = {'mse': 0, 'ssims': 0, 'psnr': 0, 'ssim': 0, 'batch_sizes': 0}
@@ -298,7 +295,7 @@ if __name__ == '__main__':
                 nrow = 3
                 image = utils.make_grid(image, nrow=nrow, padding=5, normalize=True)
 
-                if index % 300 == 0: # %100
+                if index % 200 == 0: # %300
                     utils.save_image(image, out_path + 'epoch_%d_index_%d.png' % (epoch, index), padding=5)
                 index += 1
 
@@ -329,3 +326,6 @@ if __name__ == '__main__':
                       'Score_G': results['g_score'], 'PSNR': results['psnr'], 'SSIM': results['ssim']},
                 index=range(EPOCH_START + 1, epoch + 1))
             data_frame.to_csv(out_statistics_path + 'di-lab_' + str(UPSCALE_FACTOR) + '_train_results.csv', index_label='Epoch')
+
+        schedulerG.step()
+        schedulerD.step()

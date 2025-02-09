@@ -16,18 +16,20 @@ from tqdm import tqdm
 
 import matplotlib.pyplot as plt
 import pytorch_ssim
-from data_utils import TestTensorDataset, denormalize
+from data_utils import TestTensorDataset, denormalize, normalize_to_01
 from model import Generator
 
 parser = argparse.ArgumentParser(description='Test Real Measurement Datasets')
 parser.add_argument('--upscale_factor', default=4, type=int, help='super resolution upscale factor')
-parser.add_argument('--model_name', default='netG_epoch_4_198.pth', type=str, help='generator model epoch name')
+parser.add_argument('--model_name', default='netG_epoch_4_79.pth', type=str, help='generator model epoch name') # SRGAN: 101; WGAN: 198
 parser.add_argument('--crop_size', default=64, type=int, help='testing images crop size') # 64, 256
 opt = parser.parse_args()
 
 UPSCALE_FACTOR = opt.upscale_factor
 MODEL_NAME = opt.model_name
 CROP_SIZE = opt.crop_size
+# GLOBAL_HR_MIN = 279
+# GLOBAL_HR_MAX = 306
 
 # Load model and test dataset
 data_filename = f'train_1y_Australia2_test_data_{CROP_SIZE}.pkl' # f'sc_256_2y_5_test_data_{CROP_SIZE}.pkl' # 
@@ -47,6 +49,7 @@ with open(f'{data_dir}{data_filename}','rb') as f:
 gc.enable()
 test_HR = test_data['HR']
 test_LR = test_data['LR']
+test_HR_bicubic = test_data['HR_interp']
 
 # test_set = TestDatasetFromFolder('data/test', upscale_factor=UPSCALE_FACTOR)
 test_set = TestTensorDataset(test_HR, test_LR, upscale_factor=UPSCALE_FACTOR, crop_size=CROP_SIZE)
@@ -69,7 +72,7 @@ else:
 
 # Compare reconstructed image with original hr ground truth
 index = 0
-for lr_image, hr_restore_img, hr_image in test_bar:
+for lr_image, hr_bicubic_image, hr_image in test_bar:
     with torch.no_grad():
         lr_image = Variable(lr_image)
         hr_image = Variable(hr_image)
@@ -80,25 +83,31 @@ for lr_image, hr_restore_img, hr_image in test_bar:
     sr_image = model(lr_image)
 
     # denormalization with max pixel
-    hr_image_denorm = denormalize(hr_image, test_HR[index].min(), test_HR[index].max()) # hr_image.cpu().numpy() * test_HR_max.numpy()
-    sr_image_denorm = denormalize(sr_image, test_HR[index].min(), test_HR[index].max()) # sr_image.cpu().detach().numpy() * test_HR_max.numpy()
-    hr_restore_img_denorm = denormalize(hr_restore_img, test_HR[index].min(), test_HR[index].max())
-    lr_image_denorm = denormalize(hr_image, test_LR[index].min(), test_LR[index].max()) # lr_image.cpu().numpy() * test_LR_max.numpy()
+    hr_image_denorm = denormalize(hr_image, test_HR[index].min(), test_HR[index].max()) # GLOBAL_HR_MIN, GLOBAL_HR_MAX) # hr_image.cpu().numpy() * test_HR_max.numpy()
+    sr_image_denorm = denormalize(sr_image, test_HR[index].min(), test_HR[index].max()) # GLOBAL_HR_MIN, GLOBAL_HR_MAX) # sr_image.cpu().detach().numpy() * test_HR_max.numpy()
+    hr_bicubic_img_denorm = denormalize(hr_bicubic_image, test_HR[index].min(), test_HR[index].max()) # GLOBAL_HR_MIN, GLOBAL_HR_MAX) # self-implemented version
+    # hr_bicubic_img_denorm = denormalize(normalize_to_01(test_HR_bicubic[index]), test_HR[index].min(), test_HR[index].max()).unsqueeze(0).unsqueeze(0) # from dataset
+    # lr_image_denorm = denormalize(lr_image, test_LR[index].min(), test_LR[index].max()) # lr_image.cpu().numpy() * test_LR_max.numpy()
     
     # calculate superresolution parameters
     mse = ((hr_image_denorm - sr_image_denorm) ** 2).mean() # denorm
     psnr = 10 * log10(test_HR[index].max() ** 2 / mse) # denorm
-    # print(f'psnr (denorm) = {psnr}')
+    # print(f'mse, psnr (denorm) = {mse}, {psnr}')
 
     mse = ((hr_image - sr_image) ** 2).data.mean() # norm
     psnr = 10 * log10(1 / mse) # norm
-    # print(f'psnr (norm) = {psnr}')
+    # print(f'mse, psnr (norm) = {mse}, {psnr}')
     ssim = pytorch_ssim.ssim(sr_image, hr_image).item() #.data[0]; norm
 
     # calculate bicubic parameters
-    mse_bicubic = ((hr_image.data.cpu() - hr_restore_img) ** 2).data.mean()
+    mse_bicubic = ((hr_image_denorm.cpu() - hr_bicubic_img_denorm) ** 2).data.mean()
+    psnr_bicubic = 10 * log10(test_HR[index].max() ** 2 / mse_bicubic)
+    # print(f'mse, psnr (denorm) = {mse_bicubic}, {psnr_bicubic}')
+
+    mse_bicubic = ((hr_image.data.cpu() - hr_bicubic_image) ** 2).data.mean()
     psnr_bicubic = 10 * log10(1 / mse_bicubic)
-    ssim_bicubic = pytorch_ssim.ssim(hr_restore_img, hr_image.data.cpu()).item()
+    # print(f'mse, psnr (norm) = {mse_bicubic}, {psnr_bicubic}')
+    ssim_bicubic = pytorch_ssim.ssim(hr_bicubic_image, hr_image.data.cpu()).item()
 
     # save psnr/ssim
     results[data_name]['psnr'].append(psnr)
@@ -106,9 +115,9 @@ for lr_image, hr_restore_img, hr_image in test_bar:
 
     # save test images
     test_images = torch.stack(
-        [(hr_restore_img_denorm.squeeze(0)),
-         (hr_image_denorm.cpu().squeeze(0)),
-         (sr_image_denorm.cpu().squeeze(0))])
+        [(hr_bicubic_img_denorm.squeeze(0)),
+         (sr_image_denorm.cpu().squeeze(0)),
+         (hr_image_denorm.cpu().squeeze(0))])
     image_name = f'test{index}'
     # image = utils.make_grid(test_images, nrow=3, padding=5)
     # utils.save_image(test_images, out_path + image_name + '_psnr_%.4f_ssim_%.4f_psnrBC_%.4f_ssimBC_%.4f.png' % (psnr, ssim, psnr_bicubic, ssim_bicubic), padding=5)

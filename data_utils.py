@@ -140,8 +140,23 @@ def normalize_to_01(tensor):
     max_val = tensor.max()
     return (tensor - min_val) / (max_val - min_val)
 
+def normalize_to_01_global(tensor, min_val, max_val):
+    return (tensor - min_val) / (max_val - min_val)
+
 def denormalize(tensor, original_min, original_max):
     return tensor * (original_max - original_min) + original_min
+
+def load_original_data(data):
+    image_HR_interp = []
+    image_HR        = []
+    image_LR        = []
+
+    for _, value in enumerate(data):
+        image_HR_interp.append([value[0], value[2], value[3]]) # patch, coordinates, norm_time
+        image_HR.append([value[1], value[2], value[3]])
+        image_LR.append([value[7][0,:,:], value[2], value[3]]) # since LR has different image sizes
+
+    return image_HR_interp, image_HR, image_LR
 
 
 class TrainDatasetFromFolder(Dataset):
@@ -167,12 +182,15 @@ class TrainTensorDataset(Dataset):
         self.data_lr = data_lr
         self.crop_size = crop_size
         self.upscale_factor = upscale_factor
+        # self.data_hr_min = 279 # self.data_hr.min()
+        # self.data_hr_max = 306 # self.data_hr.max()
         # crop_size = calculate_valid_crop_size(crop_size, upscale_factor)
         # self.hr_transform = train_hr_transformTensor()
         # self.lr_transform = train_lr_transformTensor(crop_size, upscale_factor)
 
     def __getitem__(self, index):
         hr_image = normalize_to_01(self.data_hr[index])
+        # hr_image = normalize_to_01_global(self.data_hr[index], self.data_hr_min, self.data_hr_max)
         lr_image = resize_tensor(hr_image, self.upscale_factor, mode='bicubic')
         # lr_image = F.interpolate(hr_image.unsqueeze(0).unsqueeze(0), size=(self.crop_size // self.upscale_factor, self.crop_size // self.upscale_factor), mode='bicubic', align_corners=False)
         return lr_image.unsqueeze(0), hr_image.unsqueeze(0)
@@ -207,9 +225,12 @@ class ValTensorDataset(Dataset):
         self.data_hr = data_hr
         self.data_lr = data_lr
         self.upscale_factor = upscale_factor
+        # self.data_hr_min = 279 # self.data_hr.min()
+        # self.data_hr_max = 306 # self.data_hr.max()
 
     def __getitem__(self, index):
         hr_image = normalize_to_01(self.data_hr[index])
+        # hr_image = normalize_to_01_global(self.data_hr[index], self.data_hr_min, self.data_hr_max)
         w, h = hr_image.size()
         # hr_scale = Resize(w, interpolation=Image.BICUBIC)
         # lr_scale = Resize(w // self.upscale_factor, interpolation=Image.BICUBIC)
@@ -255,10 +276,14 @@ class TestTensorDataset(Dataset):
         self.hr_data = hr_data
         self.upscale_factor = upscale_factor
         self.crop_size = crop_size
+        # self.data_hr_min = 279 # self.data_hr.min()
+        # self.data_hr_max = 306 # self.data_hr.max()
 
     def __getitem__(self, index):
         lr_image = normalize_to_01(self.lr_data[index])
         hr_image = normalize_to_01(self.hr_data[index])
+        # lr_image = normalize_to_01_global(self.lr_data[index], self.data_hr_min, self.data_hr_max)
+        # hr_image = normalize_to_01_global(self.hr_data[index], self.data_hr_min, self.data_hr_max)
         w_lr, h_lr = lr_image.size()
         w_hr, h_hr = hr_image.size()
         # lr_image = ToPILImage()(lr_image)
@@ -314,19 +339,21 @@ class CustomDataset(Dataset):
 class AugmentedDataset:
     def __init__(self, dataset):
         self.dataset = dataset
+        # self.data_hr_min = 279 # self.data_hr.min() # does not work with global values
+        # self.data_hr_max = 306 # self.data_hr.max()
 
     def __iter__(self):
         for data_HR, data_LR, data_HR_interp in self.dataset:
-            data_aug_HRs = augment_tensor(torch.cat((normalize_to_01(data_HR),normalize_to_01(data_HR_interp))))
+            data_aug_HRs = augment_tensor(torch.cat((normalize_to_01(data_HR), normalize_to_01(data_HR_interp))))
             data_aug_HR = data_aug_HRs[0] # augment_tensor(normalize_to_01(data_HR)) # augment_transform()(data_HR)
             data_aug_HR_interp = data_aug_HRs[1] # augment_tensor(normalize_to_01(data_HR_interp)) # augment_transform()(data_HR_interp)
             # data_aug_LR = augment_tensor(normalize_to_01(data_LR)) # augment_transform()(data_LR)
 
             data_combi_HR = torch.cat((data_HR, denormalize(data_aug_HR.unsqueeze(0), data_HR.min(), data_HR.max())), dim=0)
-            data_combi_HR_interp = torch.cat((data_HR_interp, denormalize(data_aug_HR_interp.unsqueeze(0), data_aug_HR_interp.min(), data_aug_HR_interp.max())), dim=0)
+            data_combi_HR_interp = torch.cat((data_HR_interp, denormalize(data_aug_HR_interp.unsqueeze(0), data_HR.min(), data_HR.max())), dim=0)
             # data_combi_LR = torch.cat((data_LR, denormalize(data_aug_LR.unsqueeze(0), data_LR.min(), data_LR.max())), dim=0)
             
-            yield data_combi_HR, data_combi_HR_interp
+            yield data_combi_HR, data_LR, data_combi_HR_interp
 
     def __len__(self):
         return len(self.dataset)

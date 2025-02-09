@@ -15,13 +15,18 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+import matplotlib.colors as colors
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+
 import pytorch_ssim
 from data_utils import TestTensorDataset, CustomDataset, denormalize
 from model import Generator
 
 parser = argparse.ArgumentParser(description='Test Benchmark Datasets')
 parser.add_argument('--upscale_factor', default=4, type=int, help='super resolution upscale factor')
-parser.add_argument('--model_name', default='netG_epoch_4_198.pth', type=str, help='generator model epoch name')
+parser.add_argument('--model_name', default='netG_epoch_4_101.pth', type=str, help='generator model epoch name')
 parser.add_argument('--crop_size', default=64, type=int, help='testing images crop size') # 64, 256
 parser.add_argument('--loc_name', default='right', type=str, help='location of test data (aus, right)')
 
@@ -94,6 +99,7 @@ gc.enable()
 test_HR_interp, test_HR, test_LR = load_data(test_data)
 
 # test_set = TestDatasetFromFolder('data/test', upscale_factor=UPSCALE_FACTOR)
+# test_HR = test_HR[:3]; test_LR = test_HR[:3]
 test_set = TestTensorDataset(test_HR, test_LR, upscale_factor=UPSCALE_FACTOR, crop_size=CROP_SIZE)
 test_loader = DataLoader(dataset=test_set, num_workers=4, batch_size=1, shuffle=False)
 test_bar = tqdm(test_loader, desc='[testing benchmark datasets]')
@@ -113,7 +119,7 @@ else:
         print('directory is empty, nothing to remove')
 
 # Compare reconstructed image with original hr ground truth
-index = 0
+index = 0; sr_images = []
 for lr_image, hr_restore_img, hr_image in test_bar:
     with torch.no_grad():
         lr_image = Variable(lr_image)
@@ -145,12 +151,13 @@ for lr_image, hr_restore_img, hr_image in test_bar:
     # results[image_name.split('_')[2]]['psnr'].append(psnr)
     # results[image_name.split('_')[2]]['ssim'].append(ssim)
 
-    # compare with 'sea' truth
+    # Compare with 'sea' truth
     _, _, img_w, img_h = hr_restore_img.shape
-    # closest_match = find_closest_match(df, np.mean(latlon_HR[index],0))
     sst = df['sst'][index] # closest_match['sst'] # iQuam sea truth data
+    # closest_match = find_closest_match(df, np.mean(latlon_HR[index],0))
     # print(f"test{index}: ground_truth: {closest_match['lat']}, {closest_match['lon']}; test_image: {np.mean(latlon_HR[index],0)}")
     
+    # Compare point measurements
     sr_image_sst = sr_image_denorm.cpu().squeeze(0).squeeze(0)[img_w//2][img_h//2]
     hr_image_sst = hr_image_denorm.cpu().squeeze(0).squeeze(0)[img_w//2][img_h//2]
     dist_sr_sst = abs(sr_image_sst - sst)
@@ -158,7 +165,7 @@ for lr_image, hr_restore_img, hr_image in test_bar:
     results[data_name]['dist_sr'].append(dist_sr_sst)
     results[data_name]['dist_hr'].append(dist_hr_sst)
 
-    # save test images
+    # Save test images
     test_images = torch.stack(
         [(hr_restore_img.squeeze(0)), 
          (hr_image.data.cpu().squeeze(0)),
@@ -178,9 +185,50 @@ for lr_image, hr_restore_img, hr_image in test_bar:
     # utils.save_image(image, out_path + image_name + '_psnr_%.4f_ssim_%.4f_psnrBC_%.4f_ssimBC_%.4f.png' % (psnr, ssim, psnr_bicubic, ssim_bicubic), padding=5)
     # utils.save_image(image, out_path + image_name.split('.')[0] + '_psnr_%.4f_ssim_%.4f.' % (psnr, ssim) + image_name.split('.')[-1], padding=5) # TODO: change to colour plot
     
+    sr_images.append(sr_image_denorm.cpu().detach().numpy().squeeze(0).squeeze(0))
     index += 1
 
 out_path = 'statistics/'
+
+# Create a figure with a map projection
+patch_lats = np.array(df['lat'])#[:3]
+patch_lons = np.array(df['lon'])#[:3]
+temperatures = np.array(sr_images)
+
+# Define the size of the patch in degrees (example: 0.5 degrees x 0.5 degrees)
+patch_size_degrees = 0.1 # 0.05
+fig = plt.figure(figsize=(10, 6))
+ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
+
+# Add map features
+ax.coastlines()
+ax.add_feature(cfeature.OCEAN)
+ax.add_feature(cfeature.LAND)
+ax.add_feature(cfeature.COASTLINE)
+ax.add_feature(cfeature.BORDERS, linestyle='--')
+ax.set_extent([patch_lons.min(), patch_lons.max(), patch_lats.min(), patch_lats.max()]) # Set extent to focus on the South China Sea
+
+for lat_center, lon_center, temp in zip(patch_lats, patch_lons, temperatures):
+    # Set extent to focus on the area around the patch
+    # ax.set_extent([lon_center - patch_size_degrees/2, lon_center + patch_size_degrees/2, 
+    #                lat_center - patch_size_degrees/2, lat_center + patch_size_degrees/2])
+    ax.imshow(temp, extent=[lon_center - patch_size_degrees/2, lon_center + patch_size_degrees/2, 
+                            lat_center - patch_size_degrees/2, lat_center + patch_size_degrees/2], 
+                            origin='lower', cmap='viridis')
+plt.show()
+fig.savefig(out_path + data_name + '_map.png', dpi=300)
+
+# # Create a color map
+# cmap = cm.get_cmap('jet')
+# norm = colors.Normalize(vmin=np.min(temperatures), vmax=np.max(temperatures))
+# # Plot temperature values at patch locations
+# for lat, lon, temp in zip(patch_lats, patch_lons, temperatures):
+#     # ax.plot(lon, lat, marker='o', markersize=5, color='red')
+#     ax.scatter(lon, lat, s=50, c=[cmap(norm(temp.mean()))], transform=ccrs.PlateCarree())
+#     ax.annotate(f"{temp.mean():.1f}°C", (lon, lat), textcoords="offset points", xytext=(0,10), ha='center')
+
+
+# Save quantitative results
 saved_results = {'psnr': [], 'ssim': [], 'dist_sr': [], 'dist_hr': []}
 for item in results.values():
     psnr = np.array(item['psnr'])

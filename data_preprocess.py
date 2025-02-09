@@ -5,7 +5,7 @@ import zipfile
 
 import torch
 from torch.utils.data import random_split, TensorDataset
-from data_utils import CustomDataset, AugmentedDataset
+from data_utils import load_original_data, CustomDataset, AugmentedDataset
 
 import numpy as np
 import matplotlib
@@ -29,18 +29,6 @@ def move_hr_pngs(source_folder, destination_folder):
             shutil.move(source_file, destination_file)
             print(f"Moved: {filename}")
 
-def load_data(data):
-    image_HR_interp = []
-    image_HR        = []
-    image_LR        = []
-
-    for _, value in enumerate(data):
-        image_HR_interp.append([value[0], value[2], value[3]]) # patch, coordinates, norm_time
-        image_HR.append([value[1], value[2], value[3]])
-        image_LR.append([value[7][0,:,:], value[2], value[3]]) # since LR has different image sizes
-
-    return image_HR_interp, image_HR, image_LR
-
 def extract_data(dataset):
     # Function to extract HR and LR data from a dataset
     hr_data = torch.stack([item[0] for item in dataset])
@@ -53,7 +41,7 @@ def rearrange_dict_arrays(original_dict, new_order):
         rearranged_dict[key] = torch.from_numpy(array[new_order,:,:])
     return rearranged_dict
 
-def display_images(images, label):
+def display_images(images, label, img_size):
     num_images = 16
     images = images[label][:num_images] # 'HR'
 
@@ -70,7 +58,7 @@ def display_images(images, label):
 
     # Display the grid
     plt.tight_layout()
-    plt.savefig(source_folder+f'{root}_{label}_plot.png')
+    plt.savefig(source_folder+f'{root}_{label}_{img_size}_plot.png')
 
 ## Define parameters
 to_visualise = 1 # 0 or 1
@@ -79,7 +67,7 @@ source_folder = 'data/di-lab/' # upsample factor: 2 or 4
 # move_hr_pngs(source_folder, destination_folder)
 
 ## To separate dataset into train, test, val
-data_filename = 'train_1y_Australia2.pkl' # 'sc_256_2y_5.pkl' # 'SCS_data.zip' # 
+data_filename = 'train_1y_Australia2.pkl' # 'SCS_data.zip' # 'sc_256_2y_5.pkl' # 
 root, extension = os.path.splitext(data_filename)
 data_dir = source_folder + data_filename
 
@@ -93,7 +81,7 @@ elif extension == '.zip':
 else:
     KeyError('Not a recognised file type')
 
-data_HR_interp, data_HR, data_LR = load_data(data)
+data_HR_interp, data_HR, data_LR = load_original_data(data)
 min_HR_interp_size = min({len(data[0][0]) for data in data_HR_interp})
 min_HR_size = min({len(data[0][0]) for data in data_HR})
 min_LR_size = min({len(data[0]) for data in data_LR})
@@ -109,7 +97,7 @@ data = {
 
 # Set a seed for reproducibility
 torch.manual_seed(42)
-downscale_factor = 1 # e.g. 256 --> 64: 4; 256 --> 256: 1
+downscale_factor = 4 # 1 # e.g. 256 --> 64: 4; 256 --> 256: 1
 # Define the sizes for train, validation, and test sets
 dataset = CustomDataset(data['HR'], data['LR'], data['HR_interp'], downscale_factor)
 # dataset = TensorDataset(data['HR'], data['LR'])
@@ -128,7 +116,7 @@ train_combi = {
     'HR': [],
     'LR': [],
 }
-for batch_idx, (data_combi_HR, data_combi_LR_interp) in enumerate(train_augment):
+for batch_idx, (data_combi_HR, data_LR, data_combi_LR_interp) in enumerate(train_augment): # train_augment
     train_combi['HR'].append(data_combi_HR) # no coordinates, time argument
     train_combi['LR'].append(data_combi_LR_interp) # .append(data_combi_LR[:,:min_LR_size,:min_LR_size])
     # print(f"Batch {batch_idx}: Data HR shape: {data_HR.shape}, Data (LR) shape: {data_LR}")
@@ -139,7 +127,7 @@ val_combi = {
     'HR': [],
     'LR': [],
 }
-for batch_idx, (data_combi_HR, data_combi_LR_interp) in enumerate(val_augment):
+for batch_idx, (data_combi_HR, data_LR, data_combi_LR_interp) in enumerate(val_augment): # val_augment
     val_combi['HR'].append(data_combi_HR)
     val_combi['LR'].append(data_combi_LR_interp) #.append(data_combi_LR[:,:min_LR_size,:min_LR_size])
 print('val data augmented successfully')
@@ -171,22 +159,23 @@ test_combi = {
 for batch_idx, (data_combi_HR, data_combi_LR, data_combi_HR_interp) in enumerate(test_dataset):
     test_combi['HR'][batch_idx] = data_combi_HR
     test_combi['LR'][batch_idx] = data_combi_LR
-    test_combi['HR_interp'][batch_idx] = data_combi_HR_interp[0][0]
+    test_combi['HR_interp'][batch_idx] = data_combi_HR_interp
 test_data = test_combi
 print('test data stored successfully')
 
 if to_visualise:
     # To visualise a subset of images (e.g., first 16)
-    display_images(train_data, 'HR')
-    display_images(train_data, 'LR')
+    display_images(train_data, 'HR', min_HR_size // downscale_factor)
+    display_images(train_data, 'LR', min_HR_size // downscale_factor)
+    # display_images(train_data, 'HR_interp', min_HR_size // downscale_factor)
 
 
 # Save each set as a separate .pkl file
-with open(source_folder+f'{root}_train_data_{min_HR_size // downscale_factor}.pkl', 'wb') as f:
+with open(source_folder+f'{root}_train_flipRotate_data_{min_HR_size // downscale_factor}.pkl', 'wb') as f:
     pickle.dump(train_data, f)
 
-with open(source_folder+f'{root}_val_data_{min_HR_size // downscale_factor}.pkl', 'wb') as f:
+with open(source_folder+f'{root}_val_flipRotate_data_{min_HR_size // downscale_factor}.pkl', 'wb') as f:
     pickle.dump(val_data, f)
 
-with open(source_folder+f'{root}_test_data_{min_HR_size // downscale_factor}.pkl', 'wb') as f:
+with open(source_folder+f'{root}_test_flipRotate_data_{min_HR_size // downscale_factor}.pkl', 'wb') as f:
     pickle.dump(test_data, f)
