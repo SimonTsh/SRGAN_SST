@@ -16,20 +16,22 @@ from tqdm import tqdm
 
 import matplotlib.pyplot as plt
 import pytorch_ssim
-from data_utils import TestTensorDataset, denormalize, normalize_to_01
+from data_utils import TestTensorDataset, denormalize, denormalize_mean_std
 from model import Generator
 
 parser = argparse.ArgumentParser(description='Test Real Measurement Datasets')
 parser.add_argument('--upscale_factor', default=4, type=int, help='super resolution upscale factor')
-parser.add_argument('--model_name', default='netG_epoch_4_79.pth', type=str, help='generator model epoch name') # SRGAN: 101; WGAN: 198
+parser.add_argument('--model_name', default='netG_epoch_4_100.pth', type=str, help='generator model epoch name') # SRGAN: 101; WGAN: 198
 parser.add_argument('--crop_size', default=64, type=int, help='testing images crop size') # 64, 256
 opt = parser.parse_args()
 
 UPSCALE_FACTOR = opt.upscale_factor
 MODEL_NAME = opt.model_name
 CROP_SIZE = opt.crop_size
-# GLOBAL_HR_MIN = 279
-# GLOBAL_HR_MAX = 306
+GLOBAL_HR_MIN = 279
+GLOBAL_HR_MAX = 306
+GLOBAL_MEAN = 0.509
+GLOBAL_STD = 0.194
 
 # Load model and test dataset
 data_filename = f'train_1y_Australia2_test_data_{CROP_SIZE}.pkl' # f'sc_256_2y_5_test_data_{CROP_SIZE}.pkl' # 
@@ -83,6 +85,9 @@ for lr_image, hr_bicubic_image, hr_image in test_bar:
     sr_image = model(lr_image)
 
     # denormalization with max pixel
+    # hr_image_denorm = denormalize_mean_std(hr_image, GLOBAL_MEAN, GLOBAL_STD)
+    # sr_image_denorm = denormalize_mean_std(sr_image, GLOBAL_MEAN, GLOBAL_STD)
+    # hr_bicubic_img_denorm = denormalize_mean_std(hr_bicubic_image, GLOBAL_MEAN, GLOBAL_STD)
     hr_image_denorm = denormalize(hr_image, test_HR[index].min(), test_HR[index].max()) # GLOBAL_HR_MIN, GLOBAL_HR_MAX) # hr_image.cpu().numpy() * test_HR_max.numpy()
     sr_image_denorm = denormalize(sr_image, test_HR[index].min(), test_HR[index].max()) # GLOBAL_HR_MIN, GLOBAL_HR_MAX) # sr_image.cpu().detach().numpy() * test_HR_max.numpy()
     hr_bicubic_img_denorm = denormalize(hr_bicubic_image, test_HR[index].min(), test_HR[index].max()) # GLOBAL_HR_MIN, GLOBAL_HR_MAX) # self-implemented version

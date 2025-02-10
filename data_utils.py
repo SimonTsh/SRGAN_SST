@@ -143,8 +143,14 @@ def normalize_to_01(tensor):
 def normalize_to_01_global(tensor, min_val, max_val):
     return (tensor - min_val) / (max_val - min_val)
 
+def normalize_mean_std(tensor, mean, std):
+    return (tensor - mean) / std
+
 def denormalize(tensor, original_min, original_max):
     return tensor * (original_max - original_min) + original_min
+
+def denormalize_mean_std(tensor, mean, std):
+    return (tensor * std) + mean
 
 def load_original_data(data):
     image_HR_interp = []
@@ -182,8 +188,10 @@ class TrainTensorDataset(Dataset):
         self.data_lr = data_lr
         self.crop_size = crop_size
         self.upscale_factor = upscale_factor
-        # self.data_hr_min = 279 # self.data_hr.min()
-        # self.data_hr_max = 306 # self.data_hr.max()
+        self.data_hr_min = 279 # self.data_hr.min()
+        self.data_hr_max = 306 # self.data_hr.max()
+        self.data_hr_mean = 0.509
+        self.data_hr_std = 0.194
         # crop_size = calculate_valid_crop_size(crop_size, upscale_factor)
         # self.hr_transform = train_hr_transformTensor()
         # self.lr_transform = train_lr_transformTensor(crop_size, upscale_factor)
@@ -191,6 +199,7 @@ class TrainTensorDataset(Dataset):
     def __getitem__(self, index):
         hr_image = normalize_to_01(self.data_hr[index])
         # hr_image = normalize_to_01_global(self.data_hr[index], self.data_hr_min, self.data_hr_max)
+        # hr_image = normalize_mean_std(hr_image, self.data_hr_mean, self.data_hr_std)
         lr_image = resize_tensor(hr_image, self.upscale_factor, mode='bicubic')
         # lr_image = F.interpolate(hr_image.unsqueeze(0).unsqueeze(0), size=(self.crop_size // self.upscale_factor, self.crop_size // self.upscale_factor), mode='bicubic', align_corners=False)
         return lr_image.unsqueeze(0), hr_image.unsqueeze(0)
@@ -225,12 +234,16 @@ class ValTensorDataset(Dataset):
         self.data_hr = data_hr
         self.data_lr = data_lr
         self.upscale_factor = upscale_factor
-        # self.data_hr_min = 279 # self.data_hr.min()
-        # self.data_hr_max = 306 # self.data_hr.max()
+        self.data_hr_min = 279 # self.data_hr.min()
+        self.data_hr_max = 306 # self.data_hr.max()
+        self.data_hr_mean = 0.509
+        self.data_hr_std = 0.194
 
     def __getitem__(self, index):
         hr_image = normalize_to_01(self.data_hr[index])
         # hr_image = normalize_to_01_global(self.data_hr[index], self.data_hr_min, self.data_hr_max)
+        # hr_image = normalize_mean_std(hr_image, self.data_hr_mean, self.data_hr_std)
+        
         w, h = hr_image.size()
         # hr_scale = Resize(w, interpolation=Image.BICUBIC)
         # lr_scale = Resize(w // self.upscale_factor, interpolation=Image.BICUBIC)
@@ -276,14 +289,18 @@ class TestTensorDataset(Dataset):
         self.hr_data = hr_data
         self.upscale_factor = upscale_factor
         self.crop_size = crop_size
-        # self.data_hr_min = 279 # self.data_hr.min()
-        # self.data_hr_max = 306 # self.data_hr.max()
+        self.data_hr_min = 279 # self.data_hr.min()
+        self.data_hr_max = 306 # self.data_hr.max()
+        self.data_hr_mean = 0.509
+        self.data_hr_std = 0.194
 
     def __getitem__(self, index):
         lr_image = normalize_to_01(self.lr_data[index])
         hr_image = normalize_to_01(self.hr_data[index])
         # lr_image = normalize_to_01_global(self.lr_data[index], self.data_hr_min, self.data_hr_max)
         # hr_image = normalize_to_01_global(self.hr_data[index], self.data_hr_min, self.data_hr_max)
+        # hr_image = normalize_mean_std(hr_image, self.data_hr_mean, self.data_hr_std)
+
         w_lr, h_lr = lr_image.size()
         w_hr, h_hr = hr_image.size()
         # lr_image = ToPILImage()(lr_image)
