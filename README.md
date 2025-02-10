@@ -53,29 +53,33 @@ The output super resolution images are on `benchmark_results` directory.
 ## Benchmarks
 **SRGAN (Upscale Factor = 4)**
 
-Epochs with batch size of 128 takes ~8 minute 30 seconds on a NVIDIA GTX 1080Ti GPU. 
+Epochs with batch size of 128 takes ~4 minute 30 seconds on a NVIDIA GTX 1080Ti GPU.
 
-Left: bicubic interpolation image, Middle: high resolution (original) image, and Right: super resolution generated image (output of SRGAN).
+Left: bicubic interpolation image, Middle: super resolution generated image (output of SRGAN), and Right: high resolution (original) image.
 
-- Australia_100epochs_1 (PSNR:23.6378; SSIM:0.9107)
+- Australia_64x64_1 (PSNR:33.6378; SSIM:0.9107)
 
 ![Australia](images/1.png)
 
-- Australia_100epochs_2 (PSNR:23.7581; SSIM:0.8897)
+- Australia_64x64_2 (PSNR:33.7581; SSIM:0.8897)
 
 ![Australia](images/2.png)
 
+- Australia_Global
+
+![Australia](images/5.gif)
+
 **WGAN-GP (Upscale Factor = 4)**
 
-Epochs with batch size of 64 takes ~5 minute 25 seconds on a NVIDIA GTX 1080Ti GPU. 
+Epochs with batch size of 128 takes ~5 minute 25 seconds on a NVIDIA GTX 1080Ti GPU. 
 
 Left: bicubic interpolation image, Middle: high resolution (original) image, and Right: super resolution generated image (output of WGAN-GP).
 
-- South China Sea_230epochs_1 (PSNR:23.7097; SSIM:0.8280)
+- South China Sea_256x256_1 (PSNR:33.7097; SSIM:0.8280)
 
 ![Australia](images/3.png)
 
-- South China Sea_230epochs_2 (PSNR:26.9008; SSIM:0.7585)
+- South China Sea_256x256_2 (PSNR:36.9008; SSIM:0.7585)
 
 ![Australia](images/4.png)
 
