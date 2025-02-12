@@ -42,20 +42,26 @@ def animate(i):
     ax.add_feature(cfeature.COASTLINE)
     ax.add_feature(cfeature.BORDERS, linestyle='--')
     ax.set_extent([min_lon-4, max_lon+4, min_lat-2, max_lat+2])
+    cax = fig.add_axes([0.92, 0.2, 0.02, 0.6])  # [left, bottom, width, height]
     for mask in masks_true:
-        ax.imshow(sst_images[mask], extent=[pos_latlon[mask,0,1], pos_latlon[mask,1,1], 
+        img = ax.imshow(sst_images[mask], extent=[pos_latlon[mask,0,1], pos_latlon[mask,1,1], 
                                             pos_latlon[mask,0,0], pos_latlon[mask,2,0]], 
                                             origin='lower', cmap='viridis', 
                                             vmin=sst_images.min(), vmax=sst_images.max())
-    ax.set_title(f'Time: {(datetime(int(2023), 1, 1) + timedelta(days=int(unique_time[i]*360))).date()}')
-
+        # Create or update the colorbar
+        animate.cbar = plt.colorbar(img, cax=cax) # Create the colorbar if it doesn't exist
+        img.set_clim(vmin=sst_images.min(), vmax=sst_images.max())  # Update the image limits
+        animate.cbar.update_normal(img)  # Update the colorbar
+        fig.canvas.draw_idle()  # Redraw the figure
+    
+    ax.set_title(f'Time: {(datetime(int(2023), 1, 1) + timedelta(days=int(unique_time[i]*360))).date()}')    
 
 UPSCALE_FACTOR = opt.upscale_factor
 MODEL_NAME = opt.model_name
 CROP_SIZE = opt.crop_size
 
 # Load model and test dataset
-data_filename = 'train_1y_Australia2.pkl' # 'sc_256_2y_5.pkl' # load original dataset
+data_filename = 'sc_256_2y_5.pkl' # load original dataset # 'train_1y_Australia2.pkl' # 
 data_name, extension = os.path.splitext(data_filename)
 results = {data_name: {'psnr': [], 'ssim': []}} #,'Set5': {'psnr': [], 'ssim': []}
 

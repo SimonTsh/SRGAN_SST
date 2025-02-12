@@ -21,22 +21,29 @@ from model import Generator
 
 parser = argparse.ArgumentParser(description='Test Real Measurement Datasets')
 parser.add_argument('--upscale_factor', default=4, type=int, help='super resolution upscale factor')
-parser.add_argument('--model_name', default='netG_epoch_4_100.pth', type=str, help='generator model epoch name') # SRGAN: 101; WGAN: 198
+parser.add_argument('--model_name', default='netG_epoch_4_85.pth', type=str, help='generator model epoch name') # SRGAN: 101; WGAN: 198
 parser.add_argument('--crop_size', default=64, type=int, help='testing images crop size') # 64, 256
+parser.add_argument('--test_loc', default='scs', type=str, help='<aus>: Australian West, <scs>: South China Sea')
 opt = parser.parse_args()
 
 UPSCALE_FACTOR = opt.upscale_factor
 MODEL_NAME = opt.model_name
 CROP_SIZE = opt.crop_size
+TEST_LOC = opt.test_loc
 GLOBAL_HR_MIN = 279
 GLOBAL_HR_MAX = 306
 GLOBAL_MEAN = 0.509
 GLOBAL_STD = 0.194
 
 # Load model and test dataset
-data_filename = f'train_1y_Australia2_test_data_{CROP_SIZE}.pkl' # f'sc_256_2y_5_test_data_{CROP_SIZE}.pkl' # 
+if TEST_LOC == 'aus':
+    data_filename = f'train_1y_Australia2_test_data_{CROP_SIZE}.pkl'
+elif TEST_LOC == 'scs':
+    data_filename = f'sc_256_2y_5_test_data_{CROP_SIZE}.pkl'
+else:
+    KeyError('Not a valid test location')
 data_name, extension = os.path.splitext(data_filename)
-results = {data_name: {'psnr': [], 'ssim': []}} #,'Set5': {'psnr': [], 'ssim': []}
+results = {data_name: {'psnr': [], 'ssim': [], 'psnr_bicubic': [], 'ssim_bicubic': []}}
 
 model = Generator(in_channels=1, out_channels=1, scale_factor=UPSCALE_FACTOR).eval() #Generator(UPSCALE_FACTOR).eval()
 if torch.cuda.is_available():
@@ -95,9 +102,9 @@ for lr_image, hr_bicubic_image, hr_image in test_bar:
     # lr_image_denorm = denormalize(lr_image, test_LR[index].min(), test_LR[index].max()) # lr_image.cpu().numpy() * test_LR_max.numpy()
     
     # calculate superresolution parameters
-    mse = ((hr_image_denorm - sr_image_denorm) ** 2).mean() # denorm
-    psnr = 10 * log10(test_HR[index].max() ** 2 / mse) # denorm
-    # print(f'mse, psnr (denorm) = {mse}, {psnr}')
+    # mse = ((hr_image_denorm - sr_image_denorm) ** 2).mean() # denorm
+    # psnr = 10 * log10(test_HR[index].max() ** 2 / mse) # denorm # GLOBAL_HR_MAX ** 2 / mse) # 
+    # # print(f'mse, psnr (denorm) = {mse}, {psnr}')
 
     mse = ((hr_image - sr_image) ** 2).data.mean() # norm
     psnr = 10 * log10(1 / mse) # norm
@@ -105,9 +112,9 @@ for lr_image, hr_bicubic_image, hr_image in test_bar:
     ssim = pytorch_ssim.ssim(sr_image, hr_image).item() #.data[0]; norm
 
     # calculate bicubic parameters
-    mse_bicubic = ((hr_image_denorm.cpu() - hr_bicubic_img_denorm) ** 2).data.mean()
-    psnr_bicubic = 10 * log10(test_HR[index].max() ** 2 / mse_bicubic)
-    # print(f'mse, psnr (denorm) = {mse_bicubic}, {psnr_bicubic}')
+    # mse_bicubic = ((hr_image_denorm.cpu() - hr_bicubic_img_denorm) ** 2).data.mean()
+    # psnr_bicubic = 10 * log10(test_HR[index].max() ** 2 / mse_bicubic) # GLOBAL_HR_MAX ** 2 / mse_bicubic) # 
+    # # print(f'mse, psnr (denorm) = {mse_bicubic}, {psnr_bicubic}')
 
     mse_bicubic = ((hr_image.data.cpu() - hr_bicubic_image) ** 2).data.mean()
     psnr_bicubic = 10 * log10(1 / mse_bicubic)
@@ -117,6 +124,8 @@ for lr_image, hr_bicubic_image, hr_image in test_bar:
     # save psnr/ssim
     results[data_name]['psnr'].append(psnr)
     results[data_name]['ssim'].append(ssim)
+    results[data_name]['psnr_bicubic'].append(psnr_bicubic)
+    results[data_name]['ssim_bicubic'].append(ssim_bicubic)
 
     # save test images
     test_images = torch.stack(
@@ -142,18 +151,26 @@ for lr_image, hr_bicubic_image, hr_image in test_bar:
     index += 1
 
 out_path = 'statistics/'
-saved_results = {'psnr': [], 'ssim': []}
+saved_results = {'psnr': [], 'ssim': [], 'psnr_bicubic': [], 'ssim_bicubic': []}
 for item in results.values():
     psnr = np.array(item['psnr'])
     ssim = np.array(item['ssim'])
-    if (len(psnr) == 0) or (len(ssim) == 0):
+    psnr_bicubic = np.array(item['psnr_bicubic'])
+    ssim_bicubic = np.array(item['ssim_bicubic'])
+    if (len(psnr) == 0) or (len(ssim) == 0) or (len(psnr_bicubic) == 0) or (len(ssim_bicubic) == 0):
         psnr = 'No data'
         ssim = 'No data'
+        psnr_bicubic = 'No data'
+        ssim_bicubic = 'No data'
     else:
         psnr = psnr.mean()
         ssim = ssim.mean()
+        psnr_bicubic = psnr_bicubic.mean()
+        ssim_bicubic = ssim_bicubic.mean()
     saved_results['psnr'].append(psnr)
     saved_results['ssim'].append(ssim)
+    saved_results['psnr_bicubic'].append(psnr_bicubic)
+    saved_results['ssim_bicubic'].append(ssim_bicubic)
 saved_results['model'] = MODEL_NAME
 saved_results['crop_size'] = CROP_SIZE
 

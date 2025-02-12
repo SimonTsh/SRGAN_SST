@@ -32,7 +32,7 @@ parser.add_argument('--b1', default=0.1, type=float, help='adam: decay of first 
 parser.add_argument('--b2', default=0.9, type=float, help='adam: decay of second order momentum of gradient') # 0.999
 parser.add_argument('--decay_epoch', default=50, type=int, help='start lr decay every decay_epoch epochs') # 30,50,70,100
 parser.add_argument('--gamma', default=0.5, type=float, help='multiplicative factor of learning rate decay') # 0.5
-parser.add_argument('--dataset', default='aus', type=str, help='select from <aus>, <scs>, <combined>')
+parser.add_argument('--dataset', default='combined', type=str, help='select from <aus>, <scs>, <combined>')
 parser.add_argument('--augmentation', default='original', type=str, help='select from <original>: no aug, <flipOnly>: x flip, <flipRotate>: x flip + [0,360] rotate')
 
 def load_data(data):

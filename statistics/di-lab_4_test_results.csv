@@ -1,4 +1,4 @@
-DataSet,psnr,ssim,dist_sr,dist_hr,model,crop_size
+DataSet,psnr,ssim,dist_sr/psnr_bicubic,dist_hr/ssim_bicubic,model,crop_size
 sc_256_2y_5_test_data,18.066263719322293,0.6690979818780939, netG_epoch_4_100.pth
 sc_256_2y_5_test_data,18.072736620422898,0.6722146303920479, netG_epoch_4_100.pth
 sc_256_2y_5_test_data,17.9949354610278,0.667168447812954,netG_epoch_4_100.pth
@@ -74,3 +74,8 @@ train_1y_Australia2_test_data_64,31.021531590886394,0.8500089553839376,netG_epoc
 train_1y_Australia2_test_data_64,30.920447607362192,0.8510060257625102,netG_epoch_4_79.pth,64
 train_1y_Australia2_test_data_64,29.433710807374155,0.8054383357797122,netG_epoch_4_121.pth,64
 train_1y_Australia2_test_data_64,29.55125573178388,0.8042870406963193,netG_epoch_4_83.pth,64
+train_1y_Australia2_test_data_64,31.001795391135065,0.8496658605755072,netG_epoch_4_92.pth,64
+train_1y_Australia2_test_data_64,29.305668026154702,0.7952232962110405,netG_epoch_4_146.pth,64
+sc_256_2y_5_test_data_64,27.143481777798264,0.7133880228429408,netG_epoch_4_146.pth,64
+sc_256_2y_5_test_data_64,28.282046356077796,0.7575096016997224,netG_epoch_4_85.pth,64
+sc_256_2y_5_test_data_64,28.282046356077796,0.7575096016997224,28.107099938314924,0.7621935910278267,netG_epoch_4_85.pth,64
