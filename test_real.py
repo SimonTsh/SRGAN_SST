@@ -26,9 +26,9 @@ from model import Generator
 
 parser = argparse.ArgumentParser(description='Test Benchmark Datasets')
 parser.add_argument('--upscale_factor', default=4, type=int, help='super resolution upscale factor')
-parser.add_argument('--model_name', default='netG_epoch_4_101.pth', type=str, help='generator model epoch name')
-parser.add_argument('--crop_size', default=64, type=int, help='testing images crop size') # 64, 256
-parser.add_argument('--loc_name', default='right', type=str, help='location of test data (aus, right)')
+parser.add_argument('--model_name', default='netG_epoch_4_85.pth', type=str, help='generator model epoch name')
+parser.add_argument('--crop_size', default=256, type=int, help='testing images crop size') # 64, 256
+parser.add_argument('--loc_name', default='aus', type=str, help='location of test data (aus, right)')
 
 def haversine_distance(lat1, lon1, lat2, lon2):
     R = 6371  # Earth's radius in kilometers
@@ -97,10 +97,12 @@ with open(f'{data_dir}{data_filename}','rb') as f:
     test_data = pickle.load(f) # load image data
 gc.enable()
 test_HR_interp, test_HR, test_LR = load_data(test_data)
+if LOC_NAME == 'right':
+    test_HR_interp = torch.flip(test_HR_interp, dims=(1,))
 
 # test_set = TestDatasetFromFolder('data/test', upscale_factor=UPSCALE_FACTOR)
 # test_HR = test_HR[:3]; test_LR = test_HR[:3]
-test_set = TestTensorDataset(test_HR, test_LR, upscale_factor=UPSCALE_FACTOR, crop_size=CROP_SIZE)
+test_set = TestTensorDataset(test_HR, test_LR, test_HR_interp, upscale_factor=UPSCALE_FACTOR, crop_size=CROP_SIZE)
 test_loader = DataLoader(dataset=test_set, num_workers=4, batch_size=1, shuffle=False)
 test_bar = tqdm(test_loader, desc='[testing benchmark datasets]')
 
@@ -168,8 +170,8 @@ for lr_image, hr_restore_img, hr_image in test_bar:
     # Save test images
     test_images = torch.stack(
         [(hr_restore_img.squeeze(0)), 
-         (hr_image.data.cpu().squeeze(0)),
-         (sr_image.data.cpu().squeeze(0))])
+         (sr_image.data.cpu().squeeze(0)),
+         (hr_image.data.cpu().squeeze(0))])
     image = test_images # utils.make_grid(test_images, nrow=3, padding=5)
     image_name = f'test{index}'
     fig, axes = plt.subplots(1, 3, figsize=(20, 20))

@@ -26,7 +26,7 @@ from model import Generator
 
 parser = argparse.ArgumentParser(description='Test Real Measurement Datasets')
 parser.add_argument('--upscale_factor', default=4, type=int, help='super resolution upscale factor')
-parser.add_argument('--model_name', default='netG_epoch_4_101.pth', type=str, help='generator model epoch name') # SRGAN: 101; WGAN: 198
+parser.add_argument('--model_name', default='netG_epoch_4_85.pth', type=str, help='generator model epoch name') # SRGAN: 101; WGAN: 198
 parser.add_argument('--crop_size', default=256, type=int, help='testing images crop size') # 64, 256
 opt = parser.parse_args()
 
@@ -61,7 +61,7 @@ MODEL_NAME = opt.model_name
 CROP_SIZE = opt.crop_size
 
 # Load model and test dataset
-data_filename = 'sc_256_2y_5.pkl' # load original dataset # 'train_1y_Australia2.pkl' # 
+data_filename = 'train_1y_Australia2.pkl' # 'sc_256_2y_5.pkl' # load original dataset # 
 data_name, extension = os.path.splitext(data_filename)
 results = {data_name: {'psnr': [], 'ssim': []}} #,'Set5': {'psnr': [], 'ssim': []}
 
@@ -77,17 +77,18 @@ with open(f'{data_dir}{data_filename}','rb') as f:
     test_data = pickle.load(f)
 gc.enable()
 data_HR_interp, data_HR, data_LR = load_original_data(test_data)
-test_HR = []; test_LR = []; pos = []; norm_time = []
+test_HR = []; test_LR = []; test_HR_interp = []; pos = []; norm_time = []
 for i, data in enumerate(data_HR):
     test_HR.append(data[0][0])
     test_LR.append(data_LR[i][0])
+    test_HR_interp.append(data_HR_interp[i][0].squeeze(0))
     pos.append(data[1])
     norm_time.append(data[2])
 
 num_sample = np.shape(test_HR)[0] # for debugging
 test_HR = test_HR[:num_sample]; test_LR = test_LR[:num_sample]
 # test_set = TestDatasetFromFolder('data/test', upscale_factor=UPSCALE_FACTOR)
-test_set = TestTensorDataset(test_HR, test_LR, upscale_factor=UPSCALE_FACTOR, crop_size=CROP_SIZE)
+test_set = TestTensorDataset(test_HR, test_LR, test_HR_interp, upscale_factor=UPSCALE_FACTOR, crop_size=CROP_SIZE)
 test_loader = DataLoader(dataset=test_set, num_workers=4, batch_size=1, shuffle=False)
 test_bar = tqdm(test_loader, desc='[testing benchmark datasets]')
 
@@ -145,8 +146,8 @@ for lr_image, hr_bicubic_image, hr_image in test_bar:
     # save test images
     test_images = torch.stack(
         [(sr_bicubic_img_denorm.squeeze(0)),
-         (hr_image_denorm.cpu().squeeze(0)),
-         (sr_image_denorm.cpu().squeeze(0))])
+         (sr_image_denorm.cpu().squeeze(0)),
+         (hr_image_denorm.cpu().squeeze(0))])
     image_name = f'test{index}'
     # image = utils.make_grid(test_images, nrow=3, padding=5)
     # utils.save_image(test_images, out_path + image_name + '_psnr_%.4f_ssim_%.4f_psnrBC_%.4f_ssimBC_%.4f.png' % (psnr, ssim, psnr_bicubic, ssim_bicubic), padding=5)

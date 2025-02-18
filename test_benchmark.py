@@ -23,7 +23,7 @@ parser = argparse.ArgumentParser(description='Test Real Measurement Datasets')
 parser.add_argument('--upscale_factor', default=4, type=int, help='super resolution upscale factor')
 parser.add_argument('--model_name', default='netG_epoch_4_85.pth', type=str, help='generator model epoch name') # SRGAN: 101; WGAN: 198
 parser.add_argument('--crop_size', default=64, type=int, help='testing images crop size') # 64, 256
-parser.add_argument('--test_loc', default='scs', type=str, help='<aus>: Australian West, <scs>: South China Sea')
+parser.add_argument('--test_loc', default='aus', type=str, help='<aus>: Australian West, <scs>: South China Sea')
 opt = parser.parse_args()
 
 UPSCALE_FACTOR = opt.upscale_factor
@@ -58,10 +58,10 @@ with open(f'{data_dir}{data_filename}','rb') as f:
 gc.enable()
 test_HR = test_data['HR']
 test_LR = test_data['LR']
-test_HR_bicubic = test_data['HR_interp']
+test_HR_interp = test_data['HR_interp']
 
 # test_set = TestDatasetFromFolder('data/test', upscale_factor=UPSCALE_FACTOR)
-test_set = TestTensorDataset(test_HR, test_LR, upscale_factor=UPSCALE_FACTOR, crop_size=CROP_SIZE)
+test_set = TestTensorDataset(test_HR, test_LR, test_HR_interp, upscale_factor=UPSCALE_FACTOR, crop_size=CROP_SIZE)
 test_loader = DataLoader(dataset=test_set, num_workers=4, batch_size=1, shuffle=False)
 test_bar = tqdm(test_loader, desc='[testing benchmark datasets]')
 

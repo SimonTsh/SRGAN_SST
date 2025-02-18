@@ -283,26 +283,29 @@ class TestDatasetFromFolder(Dataset):
         return len(self.lr_filenames)
     
 class TestTensorDataset(Dataset):
-    def __init__(self, hr_data, lr_data, upscale_factor, crop_size):
+    def __init__(self, hr_data, lr_data, test_hr_bicubic, upscale_factor, crop_size):
         super(TestTensorDataset, self).__init__()
         self.lr_data = lr_data
         self.hr_data = hr_data
+        self.hr_bicubic = test_hr_bicubic
         self.upscale_factor = upscale_factor
         self.crop_size = crop_size
-        self.data_hr_min = 279 # self.data_hr.min()
-        self.data_hr_max = 306 # self.data_hr.max()
-        self.data_hr_mean = 0.509
-        self.data_hr_std = 0.194
+        # self.data_hr_min = 279 # self.data_hr.min()
+        # self.data_hr_max = 306 # self.data_hr.max()
+        # self.data_hr_mean = 0.509
+        # self.data_hr_std = 0.194
 
     def __getitem__(self, index):
         lr_image = normalize_to_01(self.lr_data[index])
         hr_image = normalize_to_01(self.hr_data[index])
+        hr_bicubic = normalize_to_01(self.hr_bicubic[index])
         # lr_image = normalize_to_01_global(self.lr_data[index], self.data_hr_min, self.data_hr_max)
         # hr_image = normalize_to_01_global(self.hr_data[index], self.data_hr_min, self.data_hr_max)
         # hr_image = normalize_mean_std(hr_image, self.data_hr_mean, self.data_hr_std)
 
         w_lr, h_lr = lr_image.size()
         w_hr, h_hr = hr_image.size()
+        w_hr_bicubic, h_hr_bicubic = hr_bicubic.size()
         # lr_image = ToPILImage()(lr_image)
         # hr_image = ToPILImage()(hr_image)
 
@@ -311,11 +314,14 @@ class TestTensorDataset(Dataset):
             # hr_image = CenterCrop(self.crop_size)(hr_image)
             hr_image = center_crop_tensor(hr_image, self.crop_size)
             w_hr, h_hr = hr_image.size()
+        if w_hr_bicubic != self.crop_size:
+            hr_bicubic = center_crop_tensor(hr_bicubic, self.crop_size)
+            w_hr_bicubic, h_hr_bicubic = hr_bicubic.size()
         if w_lr != (self.crop_size // 4): # given 256 --> 64
             lr_image = center_crop_tensor(lr_image, self.crop_size // 4)
             w_lr, l_hr = lr_image.size()
         lr_image = resize_tensor(hr_image, self.upscale_factor, mode='bicubic')
-        hr_restore_img = F.interpolate(lr_image.unsqueeze(0).unsqueeze(0), size=(w_hr, h_hr), mode='bicubic', align_corners=False)
+        hr_restore_img = hr_bicubic.unsqueeze(0).unsqueeze(0) # F.interpolate(lr_image.unsqueeze(0).unsqueeze(0), size=(w_hr, h_hr), mode='bicubic', align_corners=False)
         # hr_scale = Resize((self.upscale_factor * w_lr, self.upscale_factor * h_lr), interpolation=Image.BICUBIC        
         # hr_scale = Resize((w_hr, h_hr), interpolation=Image.BICUBIC)
         # hr_restore_img = hr_scale(lr_image)
