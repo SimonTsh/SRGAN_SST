@@ -24,7 +24,7 @@ import pytorch_ssim
 from data_utils import TestTensorDataset, CustomDataset, denormalize
 from model import Generator
 
-parser = argparse.ArgumentParser(description='Test Benchmark Datasets')
+parser = argparse.ArgumentParser(description='Test Real Measurement Datasets')
 parser.add_argument('--upscale_factor', default=4, type=int, help='super resolution upscale factor')
 parser.add_argument('--model_name', default='netG_epoch_4_85.pth', type=str, help='generator model epoch name')
 parser.add_argument('--crop_size', default=256, type=int, help='testing images crop size') # 64, 256

@@ -21,15 +21,15 @@ from model import Generator, Discriminator
 
 parser = argparse.ArgumentParser(description='Train Super Resolution Models')
 parser.add_argument('--epoch_start', default=0, type=int, help='epoch to load from') # 0
-parser.add_argument('--crop_size', default=64, type=int, help='training images crop size') # 64 # 88 # 96 # 128
+parser.add_argument('--crop_size', default=256, type=int, help='training images crop size') # 64 # 88 # 96 # 128
 parser.add_argument('--upscale_factor', default=4, type=int, choices=[2, 4, 8], help='super resolution upscale factor')
 parser.add_argument('--num_epochs', default=100, type=int, help='train epoch number') # 30 # 100 # 150
-parser.add_argument('--learning_rate', default=5e-4, type=float, help='learning rate for generator and discriminator') # 2e-3 # 1e-3
+parser.add_argument('--learning_rate', default=1.5e-4, type=float, help='learning rate for generator and discriminator') # 2e-3 # 1e-3 # 64: 5e-4 # 128: 2e-4 # 256: 1e-4
 parser.add_argument('--b1', default=0.5, type=float, help='adam: decay of first order momentum of gradient')
 parser.add_argument('--b2', default=0.9, type=float, help='adam: decay of second order momentum of gradient') # 0.999
 parser.add_argument('--decay_epoch', default=50, type=int, help='start lr decay every decay_epoch epochs') # 30 # 50 # 100
 parser.add_argument('--gamma', default=0.5, type=float, help='multiplicative factor of learning rate decay') # 0.1
-parser.add_argument('--dataset', default='combined', type=str, help='select from aus, scs, combined')
+parser.add_argument('--dataset', default='aus', type=str, help='select from aus, scs, combined')
 parser.add_argument('--augmentation', default='original', type=str, help='select from original: no aug, flipOnly: x flip, flipRotate: x flip + [0,360] rotate')
 
 def load_data(data):
@@ -123,7 +123,7 @@ if __name__ == '__main__':
     # Set data parameters, load into dataloader
     train_set = TrainTensorDataset(train_HR, train_LR, crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)
     val_set = ValTensorDataset(val_HR, val_LR, upscale_factor=UPSCALE_FACTOR)
-    train_loader = DataLoader(train_set, num_workers=0, batch_size=128, shuffle=True) # batch_size=64, # 128, # num_workers=4
+    train_loader = DataLoader(train_set, num_workers=0, batch_size=16, shuffle=True) # batch_size=16, 64, 128, # num_workers=4
     val_loader = DataLoader(val_set, num_workers=0, batch_size=1, shuffle=False) # num_workers=4
 
     # train_set = TrainDatasetFromFolder('data/DIV2K_train_HR', crop_size=CROP_SIZE, upscale_factor=UPSCALE_FACTOR)

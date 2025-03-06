@@ -97,14 +97,14 @@ data = {
 
 # Set a seed for reproducibility
 torch.manual_seed(42)
-downscale_factor = 4 # 1 # e.g. 256 --> 64: 4; 256 --> 256: 1
+downscale_factor = 1 # 4 # e.g. 256 --> 64: 4; 256 --> 256: 1
 # Define the sizes for train, validation, and test sets
 dataset = CustomDataset(data['HR'], data['LR'], data['HR_interp'], downscale_factor)
 # dataset = TensorDataset(data['HR'], data['LR'])
 total_size = len(dataset)
 train_size = int(0.7 * total_size)  # 70% for training
-val_size = int(0.15 * total_size)   # 15% for validation
-test_size = total_size - train_size - val_size  # 15% for testing
+val_size = int(0.2 * total_size)   # 20% / 15% for validation
+test_size = total_size - train_size - val_size  # 10% / 15% for testing
 
 # Perform the split
 train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
@@ -116,7 +116,7 @@ train_combi = {
     'HR': [],
     'LR': [],
 }
-for batch_idx, (data_combi_HR, data_LR, data_combi_LR_interp) in enumerate(train_augment): # train_augment
+for batch_idx, (data_combi_HR, data_LR, data_combi_LR_interp) in enumerate(train_dataset): # train_augment
     train_combi['HR'].append(data_combi_HR) # no coordinates, time argument
     train_combi['LR'].append(data_combi_LR_interp) # .append(data_combi_LR[:,:min_LR_size,:min_LR_size])
     # print(f"Batch {batch_idx}: Data HR shape: {data_HR.shape}, Data (LR) shape: {data_LR}")
@@ -127,7 +127,7 @@ val_combi = {
     'HR': [],
     'LR': [],
 }
-for batch_idx, (data_combi_HR, data_LR, data_combi_LR_interp) in enumerate(val_augment): # val_augment
+for batch_idx, (data_combi_HR, data_LR, data_combi_LR_interp) in enumerate(val_dataset): # val_augment
     val_combi['HR'].append(data_combi_HR)
     val_combi['LR'].append(data_combi_LR_interp) #.append(data_combi_LR[:,:min_LR_size,:min_LR_size])
 print('val data augmented successfully')
@@ -171,11 +171,11 @@ if to_visualise:
 
 
 # Save each set as a separate .pkl file
-with open(source_folder+f'{root}_train_flipRotate_data_{min_HR_size // downscale_factor}.pkl', 'wb') as f:
+with open(source_folder+f'{root}_train_original_data_{min_HR_size // downscale_factor}.pkl', 'wb') as f: # flipRotate
     pickle.dump(train_data, f)
 
-with open(source_folder+f'{root}_val_flipRotate_data_{min_HR_size // downscale_factor}.pkl', 'wb') as f:
+with open(source_folder+f'{root}_val_original_data_{min_HR_size // downscale_factor}.pkl', 'wb') as f:
     pickle.dump(val_data, f)
 
-with open(source_folder+f'{root}_test_flipRotate_data_{min_HR_size // downscale_factor}.pkl', 'wb') as f:
+with open(source_folder+f'{root}_test_data_{min_HR_size // downscale_factor}.pkl', 'wb') as f:
     pickle.dump(test_data, f)
