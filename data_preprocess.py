@@ -101,6 +101,7 @@ downscale_factor = 1 # 4 # e.g. 256 --> 64: 4; 256 --> 256: 1
 # Define the sizes for train, validation, and test sets
 dataset = CustomDataset(data['HR'], data['LR'], data['HR_interp'], downscale_factor)
 # dataset = TensorDataset(data['HR'], data['LR'])
+
 total_size = len(dataset)
 train_size = int(0.7 * total_size)  # 70% for training
 val_size = int(0.2 * total_size)   # 20% / 15% for validation

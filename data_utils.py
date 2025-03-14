@@ -1,5 +1,7 @@
+import os
 from os import listdir
 from os.path import join
+import shutil
 
 from PIL import Image
 import torch
@@ -158,11 +160,25 @@ def load_original_data(data):
     image_LR        = []
 
     for _, value in enumerate(data):
-        image_HR_interp.append([value[0], value[2], value[3]]) # patch, coordinates, norm_time
-        image_HR.append([value[1], value[2], value[3]])
-        image_LR.append([value[7][0,:,:], value[2], value[3]]) # since LR has different image sizes
+        image_HR_interp.append([value[0], value[2], value[3], value[6]]) # patch, coordinates, norm_time, dist (in km)
+        image_HR.append([value[1], value[2], value[3], value[6]])
+        image_LR.append([value[7][0,:,:], value[2], value[3], value[6]]) # since LR has different image sizes
 
     return image_HR_interp, image_HR, image_LR
+
+def clear_directory(out_path):
+    if not os.path.exists(out_path): # check if file exists
+        os.makedirs(out_path)
+    else:
+        if os.listdir(out_path): # check if directory is not empty
+            for item in os.listdir(out_path): # remove all contents of the directory
+                item_path = os.path.join(out_path, item)
+                if os.path.isfile(item_path) or os.path.islink(item_path):
+                    os.unlink(item_path)
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+        else:
+            print('directory is empty, nothing to remove')
 
 
 class TrainDatasetFromFolder(Dataset):

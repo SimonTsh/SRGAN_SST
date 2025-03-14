@@ -1,6 +1,6 @@
 epochs/
 log/
-/home/simon/SRGAN/data/
+data/
 benchmark_results/
 110m_cultural/
 __pycache__/

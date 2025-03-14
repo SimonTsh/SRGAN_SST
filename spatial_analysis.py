@@ -1,12 +1,9 @@
 import argparse
 import os
-from math import log10
 
 import numpy as np
-import pandas as pd
 import pickle
 import gc
-import shutil
 
 import torch
 from torch.autograd import Variable
@@ -14,13 +11,13 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import matplotlib.pyplot as plt
-from data_utils import TestTensorDataset, denormalize
+from data_utils import clear_directory, denormalize, TestTensorDataset
 from model import Generator
 
 parser = argparse.ArgumentParser(description='Analyse Spatial features')
 parser.add_argument('--upscale_factor', default=4, type=int, help='super resolution upscale factor')
-parser.add_argument('--model_name', default='netG_epoch_4_95.pth', type=str, help='generator model epoch name') # SRGAN: 101; WGAN: 198
-parser.add_argument('--crop_size', default=128, type=int, help='testing images crop size') # 64, 256
+parser.add_argument('--model_name', default='netG_epoch_4_89.pth', type=str, help='generator model epoch name') # SRGAN: 101; WGAN: 198
+parser.add_argument('--crop_size', default=256, type=int, help='testing images crop size') # 64, 256
 parser.add_argument('--test_loc', default='aus', type=str, help='<aus>: Australian West, <scs>: South China Sea')
 opt = parser.parse_args()
 
@@ -68,18 +65,7 @@ test_loader = DataLoader(dataset=test_set, num_workers=4, batch_size=1, shuffle=
 test_bar = tqdm(test_loader, desc='[testing benchmark datasets]')
 
 out_path = 'benchmark_results/di-lab_%s/' % str(UPSCALE_FACTOR)
-if not os.path.exists(out_path): # check if file exists
-    os.makedirs(out_path)
-else:
-    if os.listdir(out_path): # check if directory is not empty
-        for item in os.listdir(out_path): # remove all contents of the directory
-            item_path = os.path.join(out_path, item)
-            if os.path.isfile(item_path) or os.path.islink(item_path):
-                os.unlink(item_path)
-            elif os.path.isdir(item_path):
-                shutil.rmtree(item_path)
-    else:
-        print('directory is empty, nothing to remove')
+clear_directory(out_path)
 
 # Compare reconstructed image with original hr ground truth
 index = 0

@@ -1,11 +1,9 @@
 import argparse
-import os
 from math import log10
 
 import pandas as pd
 import pickle
 import gc
-import shutil
 
 import torch.optim as optim
 import torch.utils.data
@@ -15,16 +13,16 @@ from torch.optim.lr_scheduler import MultiStepLR
 from tqdm import tqdm
 
 import pytorch_ssim
-from data_utils import TrainTensorDataset, ValTensorDataset
+from data_utils import clear_directory, TrainTensorDataset, ValTensorDataset
 from loss import GeneratorLoss
 from model import Generator, Discriminator
 
 parser = argparse.ArgumentParser(description='Train Super Resolution Models')
 parser.add_argument('--epoch_start', default=0, type=int, help='epoch to load from') # 0
-parser.add_argument('--crop_size', default=256, type=int, help='training images crop size') # 64 # 88 # 96 # 128
+parser.add_argument('--crop_size', default=64, type=int, help='training images crop size') # 64 # 88 # 96 # 128
 parser.add_argument('--upscale_factor', default=4, type=int, choices=[2, 4, 8], help='super resolution upscale factor')
 parser.add_argument('--num_epochs', default=100, type=int, help='train epoch number') # 30 # 100 # 150
-parser.add_argument('--learning_rate', default=1.5e-4, type=float, help='learning rate for generator and discriminator') # 2e-3 # 1e-3 # 64: 5e-4 # 128: 2e-4 # 256: 1e-4
+parser.add_argument('--learning_rate', default=3e-4, type=float, help='learning rate for generator and discriminator') # 64: 3e-4 # 128: 2e-4 # 256: 1.5e-4
 parser.add_argument('--b1', default=0.5, type=float, help='adam: decay of first order momentum of gradient')
 parser.add_argument('--b2', default=0.9, type=float, help='adam: decay of second order momentum of gradient') # 0.999
 parser.add_argument('--decay_epoch', default=50, type=int, help='start lr decay every decay_epoch epochs') # 30 # 50 # 100
@@ -71,18 +69,7 @@ if __name__ == '__main__':
 
     # clean folder for saving results
     out_path = 'training_results/SRF_' + str(UPSCALE_FACTOR) + '/'
-    if not os.path.exists(out_path):
-        os.makedirs(out_path)
-    else:
-        if os.listdir(out_path): # check if directory is not empty
-            for item in os.listdir(out_path): # remove all contents of the directory
-                item_path = os.path.join(out_path, item)
-                if os.path.isfile(item_path) or os.path.islink(item_path):
-                    os.unlink(item_path)
-                elif os.path.isdir(item_path):
-                    shutil.rmtree(item_path)
-        else:
-            print('directory is empty, nothing to remove')
+    clear_directory(out_path)
             
     # load train, val dataset
     data_dir = 'data/di-lab/'

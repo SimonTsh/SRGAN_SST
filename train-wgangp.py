@@ -1,11 +1,9 @@
 import argparse
-import os
 from math import log10
 
 import pandas as pd
 import pickle
 import gc
-import shutil
 
 import torch.optim as optim
 import torch.utils.data
@@ -17,7 +15,7 @@ from tqdm import tqdm
 from tensorboard_logger import configure, log_value
 
 import pytorch_ssim
-from data_utils import TrainTensorDataset, ValTensorDataset # ,TrainDatasetFromFolder, ValDatasetFromFolder
+from data_utils import clear_directory, TrainTensorDataset, ValTensorDataset # ,TrainDatasetFromFolder, ValDatasetFromFolder
 from loss import GeneratorLoss, compute_gradient_penalty
 from model import Generator, Discriminator_WGAN
 
@@ -78,18 +76,7 @@ if __name__ == '__main__':
 
     # clean folder for saving results
     out_path = 'training_results/SRF_' + str(UPSCALE_FACTOR) + '/'
-    if not os.path.exists(out_path):
-        os.makedirs(out_path)
-    else:
-        if os.listdir(out_path): # check if directory is not empty
-            for item in os.listdir(out_path): # remove all contents of the directory
-                item_path = os.path.join(out_path, item)
-                if os.path.isfile(item_path) or os.path.islink(item_path):
-                    os.unlink(item_path)
-                elif os.path.isdir(item_path):
-                    shutil.rmtree(item_path)
-        else:
-            print('directory is empty, nothing to remove')
+    clear_directory(out_path)
 
     # load train, val dataset
     data_dir = 'data/di-lab/'

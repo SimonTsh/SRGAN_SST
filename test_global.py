@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import pickle
 import gc
-import shutil
 
 import torch
 from torch.autograd import Variable
@@ -15,18 +14,17 @@ from tqdm import tqdm
 
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from matplotlib.animation import PillowWriter
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from datetime import datetime, timedelta
 
 import pytorch_ssim
-from data_utils import denormalize, load_original_data, TestTensorDataset
+from data_utils import clear_directory, denormalize, load_original_data, TestTensorDataset
 from model import Generator
 
 parser = argparse.ArgumentParser(description='Test Global Datasets')
 parser.add_argument('--upscale_factor', default=4, type=int, help='super resolution upscale factor')
-parser.add_argument('--model_name', default='netG_epoch_4_85.pth', type=str, help='generator model epoch name') # SRGAN: 101; WGAN: 198
+parser.add_argument('--model_name', default='netG_epoch_4_89.pth', type=str, help='generator model epoch name') # SRGAN: 101; WGAN: 198
 parser.add_argument('--crop_size', default=256, type=int, help='testing images crop size') # 64, 256
 opt = parser.parse_args()
 
@@ -35,33 +33,37 @@ def animate(i):
     masks = times == unique_time[i]
     masks_true = np.where(masks)[0]
 
-    ax.clear()
-    ax.coastlines()
-    ax.add_feature(cfeature.OCEAN)
-    ax.add_feature(cfeature.LAND)
-    ax.add_feature(cfeature.COASTLINE)
-    ax.add_feature(cfeature.BORDERS, linestyle='--')
-    ax.set_extent([min_lon-4, max_lon+4, min_lat-2, max_lat+2])
-    cax = fig.add_axes([0.92, 0.2, 0.02, 0.6])  # [left, bottom, width, height]
-    for mask in masks_true:
-        img = ax.imshow(sst_images[mask], extent=[pos_latlon[mask,0,1], pos_latlon[mask,1,1], 
-                                            pos_latlon[mask,0,0], pos_latlon[mask,2,0]], 
-                                            origin='lower', cmap='viridis', 
-                                            vmin=sst_images.min(), vmax=sst_images.max())
-        # Create or update the colorbar
-        animate.cbar = plt.colorbar(img, cax=cax) # Create the colorbar if it doesn't exist
-        img.set_clim(vmin=sst_images.min(), vmax=sst_images.max())  # Update the image limits
-        animate.cbar.update_normal(img)  # Update the colorbar
-        fig.canvas.draw_idle()  # Redraw the figure
+    for j, mask in enumerate(masks_true): # update images in-place
+        if j < len(images):
+            extents = [pos_latlon[mask,0,1], pos_latlon[mask,1,1],
+                       pos_latlon[mask,0,0], pos_latlon[mask,2,0]]
+            images[j].set_extent(extents)
+            images[j].set_data(sst_images[mask])
+            images[j].set_visible(True)
+            images[j].set_clim(vmin=sst_images.min(), 
+                               vmax=sst_images.max())
+        else:  # handle case with more patches than pre-allocated images
+            img = ax.imshow(sst_images[mask],
+                            extent=extents,
+                            origin='lower',
+                            cmap='viridis',
+                            vmin=sst_images.min(), 
+                            vmax=sst_images.max())
+            images.append(img)
     
-    ax.set_title(f'Time: {(datetime(int(2023), 1, 1) + timedelta(days=int(unique_time[i]*360))).date()}')    
+    for j in range(len(masks_true), len(images)): # hide unused images from previous frames
+        images[j].set_visible(False)
+    
+    ax.set_title(f'Time: {dates[i]}')
+    return images + [ax.title]
+
 
 UPSCALE_FACTOR = opt.upscale_factor
 MODEL_NAME = opt.model_name
 CROP_SIZE = opt.crop_size
 
 # Load model and test dataset
-data_filename = 'train_1y_Australia2.pkl' # 'sc_256_2y_5.pkl' # load original dataset # 
+data_filename = 'train_1y_Australia2.pkl' # 'sc_256_2y_5.pkl' # load original dataset
 data_name, extension = os.path.splitext(data_filename)
 results = {data_name: {'psnr': [], 'ssim': []}} #,'Set5': {'psnr': [], 'ssim': []}
 
@@ -85,7 +87,7 @@ for i, data in enumerate(data_HR):
     pos.append(data[1])
     norm_time.append(data[2])
 
-num_sample = np.shape(test_HR)[0] # for debugging
+num_sample = np.shape(test_HR)[0] # // 10 # for debugging
 test_HR = test_HR[:num_sample]; test_LR = test_LR[:num_sample]
 # test_set = TestDatasetFromFolder('data/test', upscale_factor=UPSCALE_FACTOR)
 test_set = TestTensorDataset(test_HR, test_LR, test_HR_interp, upscale_factor=UPSCALE_FACTOR, crop_size=CROP_SIZE)
@@ -93,18 +95,7 @@ test_loader = DataLoader(dataset=test_set, num_workers=4, batch_size=1, shuffle=
 test_bar = tqdm(test_loader, desc='[testing benchmark datasets]')
 
 out_path = 'benchmark_results/di-lab_%s/' % str(UPSCALE_FACTOR)
-if not os.path.exists(out_path): # check if file exists
-    os.makedirs(out_path)
-else:
-    if os.listdir(out_path): # check if directory is not empty
-        for item in os.listdir(out_path): # remove all contents of the directory
-            item_path = os.path.join(out_path, item)
-            if os.path.isfile(item_path) or os.path.islink(item_path):
-                os.unlink(item_path)
-            elif os.path.isdir(item_path):
-                shutil.rmtree(item_path)
-    else:
-        print('directory is empty, nothing to remove')
+clear_directory(out_path)
 
 # Create global map of reconstructed images
 index = 0; sst_image = []; hr_image_all = []; lr_image_all = []
@@ -182,13 +173,31 @@ max_lat = pos_latlon[:,:,0].max()
 min_lon = pos_latlon[:,:,1].min()
 max_lon = pos_latlon[:,:,1].max()
 
-# Add map features
+# Add static map features once
 fig = plt.figure(figsize=(10, 10))
 ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
-ani = animation.FuncAnimation(fig, animate, frames=len(unique_time), interval=500)
-plt.show()
-writer = PillowWriter(fps=5)
-ani.save(f'{out_path}{data_name}_map.gif', writer=writer)
+ax.coastlines()
+ax.add_feature(cfeature.OCEAN)
+ax.add_feature(cfeature.LAND)
+ax.add_feature(cfeature.COASTLINE)
+ax.add_feature(cfeature.BORDERS, linestyle='--')
+ax.set_extent([min_lon-4, max_lon+4, min_lat-2, max_lat+2])
+
+cax = fig.add_axes([0.92, 0.2, 0.02, 0.6])  # [left, bottom, width, height] # create colorbar once
+sm = plt.cm.ScalarMappable(cmap='viridis', norm=plt.Normalize(vmin=sst_images.min(), vmax=sst_images.max()))
+fig.colorbar(sm, cax=cax)
+
+dates = [(datetime(2023, 1, 1) + timedelta(days=int(t*360))).date().isoformat() for t in unique_time] # Precompute all date strings
+
+images = [] # Create initial empty image collection
+for _ in range(len(unique_time)):
+    images.append(ax.imshow(np.empty((0,0)), visible=False, origin='lower', cmap='viridis'))
+    
+ani = animation.FuncAnimation(fig, animate, frames=len(unique_time), interval=500, blit=True, repeat=False)
+
+# writer = PillowWriter(fps=5)
+ani.save(f'{out_path}{data_name}_map.gif', writer='pillow', fps=5, savefig_kwargs={'facecolor': fig.get_facecolor()})
+
 
 # fig.savefig(out_path + data_name + '_map.png', dpi=300)
 plt.close('all')
