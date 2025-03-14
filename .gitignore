@@ -1,0 +1,6 @@
+epochs/
+log/
+data/
+benchmark_results/
+110m_cultural/
+__pycache__/
