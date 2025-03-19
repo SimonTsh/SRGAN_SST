@@ -1,6 +1,6 @@
 import argparse
 import os
-from math import log10
+from math import log10, sqrt
 
 import numpy as np
 import pandas as pd
@@ -95,6 +95,7 @@ for lr_image, hr_bicubic_image, hr_image in test_bar:
     # # print(f'mse, psnr (denorm) = {mse}, {psnr}')
 
     mse = ((hr_image - sr_image) ** 2).data.mean() # norm
+    rmse = sqrt(mse)
     psnr = 10 * log10(1 / mse) # norm
     # print(f'mse, psnr (norm) = {mse}, {psnr}')
     ssim = pytorch_ssim.ssim(sr_image, hr_image).item() #.data[0]; norm
@@ -105,6 +106,7 @@ for lr_image, hr_bicubic_image, hr_image in test_bar:
     # # print(f'mse, psnr (denorm) = {mse_bicubic}, {psnr_bicubic}')
 
     mse_bicubic = ((hr_image.data.cpu() - hr_bicubic_image) ** 2).data.mean()
+    rmse_bicubic = sqrt(mse)
     psnr_bicubic = 10 * log10(1 / mse_bicubic)
     # print(f'mse, psnr (norm) = {mse_bicubic}, {psnr_bicubic}')
     ssim_bicubic = pytorch_ssim.ssim(hr_bicubic_image, hr_image.data.cpu()).item()

@@ -166,8 +166,8 @@ out_path = 'statistics/'
 # Create a figure with a map projection function to animate
 sst_images = np.array(sst_image)[:num_sample] # sst_image # hr_image_all # lr_image_all
 times = np.array(norm_time).squeeze(-1)[:num_sample]
-pos_latlon = np.array(pos)[:num_sample]
 unique_time = np.unique(times)
+pos_latlon = np.array(pos)[:num_sample]
 min_lat = pos_latlon[:,:,0].min()
 max_lat = pos_latlon[:,:,0].max()
 min_lon = pos_latlon[:,:,1].min()
@@ -197,8 +197,6 @@ ani = animation.FuncAnimation(fig, animate, frames=len(unique_time), interval=50
 
 # writer = PillowWriter(fps=5)
 ani.save(f'{out_path}{data_name}_map.gif', writer='pillow', fps=5, savefig_kwargs={'facecolor': fig.get_facecolor()})
-
-
 # fig.savefig(out_path + data_name + '_map.png', dpi=300)
 plt.close('all')
 
