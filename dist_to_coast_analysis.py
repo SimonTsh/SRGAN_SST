@@ -5,7 +5,6 @@ import zipfile
 import numpy as np
 import pickle
 import gc
-from netCDF4 import Dataset
 import xarray as xr
 
 import torch
@@ -32,7 +31,7 @@ CROP_SIZE = opt.crop_size
 # Load model and test dataset
 data_filename = 'train_1y_Australia2.pkl' # 'sc_256_2y_5.pkl' # load original datasets #
 data_name, extension = os.path.splitext(data_filename)
-results = {'dist_sr_hr': [], 'dist_to_coast': []}
+results = {'dist_sr_hr': [], 'dist_bi_hr': [], 'dist_to_coast': []}
 
 model = Generator(in_channels=1, out_channels=1, scale_factor=UPSCALE_FACTOR).eval() #Generator(UPSCALE_FACTOR).eval()
 if torch.cuda.is_available():
@@ -56,39 +55,25 @@ for i, data in enumerate(data_HR):
     dist_to_coast.append(data[3])
 
 # Load ancilliary data i.e. dist-to-coast (for AUS)
-data_filename2 = 'dist_to_GSHHG_v2.3.7_1m.nc' # 'dist_to_GSHHG_v2.3.7_1m.zip' # global netCDF grid
-data_name2, extension2 = os.path.splitext(data_filename2)
-lat_filter = [np.amin(np.amin(pos, axis=1)), np.amax(np.amin(pos, axis=2))] # -90 to 90 --> -45.1, -15.0
-lon_filter = [np.amin(np.amax(pos, axis=2)), np.amax(np.amax(pos, axis=2))] # 0 to 360 --> 90.0, 125.1
-if extension2 == '.zip': # os.path.exists(f'{data_dir}{data_filename2}'):
-    with zipfile.ZipFile(f'{data_dir}{data_filename2}', 'r') as f:
-        f.extractall()
-        os.remove(f'{data_dir}{data_filename2}')
-        print(f'{data_dir}{data_filename2} extracted and ZIP deleted')
-elif extension2 == '.nc':
-    # nc_file = Dataset(f'{data_dir}{data_filename2}', 'r')
-    # print(nc_file.variables.keys()) # lon, lat, dist
-    global_nc = xr.open_dataset(f'{data_dir}{data_filename2}')
-    if not np.any(dist_to_coast): # e.g. aus dataset
-        aus_nc = global_nc.sel(lat = slice(lat_filter[0], lat_filter[1]),
-                                  lon = slice(lon_filter[0], lon_filter[1]))
-        ocean_mask = aus_nc["dist"] < 0 # keep only ocean points (i.e. negative distances)
-        dist_to_coast = aus_nc.where(ocean_mask, drop=True)
-        # lat = nc_file.variables['lat'][:].data
-        # lat = lat[(lat > lat_filter[0]) & (lat < lat_filter[1])]
-        # lon = nc_file.variables['lon'][:].data
-        # lon = lon[(lon > lon_filter[0]) & (lon < lon_filter[1])]
-        # dist = nc_file.variables['dist'][:].data
-        # dist_to_coast = xr.DataArray(
-        #     data=dist,
-        #     dims=["y", "x"],
-        #     coords={
-        #         "lat": ("y", lat),  # Assign 1D lat array
-        #         "lon": ("x", lon),  # Assign 1D lon array
-        #     }
-        # )
-else:
-    print(f'{data_dir}{data_filename2} does not exist')
+if data_name == 'train_1y_Australia2':
+    data_filename2 = 'dist_to_GSHHG_v2.3.7_1m.nc' # 'dist_to_GSHHG_v2.3.7_1m.zip' # global netCDF grid
+    data_name2, extension2 = os.path.splitext(data_filename2)
+    lat_filter = [np.amin(np.amin(pos, axis=1)), np.amax(np.amin(pos, axis=2))] # -90 to 90 --> -45.1, -15.0
+    lon_filter = [np.amin(np.amax(pos, axis=2)), np.amax(np.amax(pos, axis=2))] # 0 to 360 --> 90.0, 125.1
+    if extension2 == '.zip': # os.path.exists(f'{data_dir}{data_filename2}'):
+        with zipfile.ZipFile(f'{data_dir}{data_filename2}', 'r') as f:
+            f.extractall()
+            os.remove(f'{data_dir}{data_filename2}')
+            print(f'{data_dir}{data_filename2} extracted and ZIP deleted')
+    elif extension2 == '.nc':
+        global_nc = xr.open_dataset(f'{data_dir}{data_filename2}')
+        if not np.any(dist_to_coast): # e.g. aus dataset
+            aus_nc = global_nc.sel(lat = slice(lat_filter[0], lat_filter[1]),
+                                    lon = slice(lon_filter[0], lon_filter[1]))
+            ocean_mask = aus_nc['dist'] < 0 # keep only ocean points (i.e. negative distances)
+            dist_to_coast = aus_nc.where(ocean_mask, drop=True)
+    else:
+        print(f'{data_dir}{data_filename2} does not exist')
 
 num_sample = np.shape(test_HR)[0] # 200
 test_HR = test_HR[:num_sample]
@@ -113,12 +98,16 @@ for lr_image, hr_bicubic_image, hr_image in test_bar:
     sr_image = model(lr_image)
     sr_image_denorm = denormalize(sr_image, test_HR[index].min(), test_HR[index].max())
     hr_image_denorm = denormalize(hr_image, test_HR[index].min(), test_HR[index].max())
+    bi_image_denorm = denormalize(hr_bicubic_image, test_HR[index].min(), test_HR[index].max())
 
     # investigate the relation between prediction accuracy and distance to the coast (in AUS, if enough time also SCS)
     sr_image_sst = sr_image_denorm.cpu().squeeze(0).squeeze(0)[CROP_SIZE//2][CROP_SIZE//2]
     hr_image_sst = hr_image_denorm.cpu().squeeze(0).squeeze(0)[CROP_SIZE//2][CROP_SIZE//2]
+    bi_image_sst = bi_image_denorm.cpu().squeeze(0).squeeze(0)[CROP_SIZE//2][CROP_SIZE//2]
     dist_sr_hr = abs(sr_image_sst.detach() - hr_image_sst)
+    dist_bi_hr = abs(bi_image_sst.detach() - hr_image_sst)
     results['dist_sr_hr'].append(dist_sr_hr)#.item())
+    results['dist_bi_hr'].append(dist_bi_hr)
 
     index += 1
 
@@ -137,8 +126,8 @@ for i in range(num_sample):
 # plotting trend
 out_path = 'statistics/'
 fig, ax = plt.subplots()
-ax.scatter(np.array(results['dist_to_coast']), np.array(results['dist_sr_hr']), s=20)
-ax.set_ylabel('accuracy (deg)')
+ax.scatter(np.array(results['dist_to_coast']), np.array(results['dist_bi_hr']), s=15) # dist_sr_hr
+ax.set_ylabel('MAE (degrees)')
 ax.set_xlabel('dist to coast (km)')
 ax.grid(True)
 fig.savefig(f'{out_path}{data_name}_distToCoast.png', dpi=300, bbox_inches='tight') 

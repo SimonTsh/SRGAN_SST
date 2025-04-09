@@ -192,7 +192,7 @@ dates = [(datetime(2023, 1, 1) + timedelta(days=int(t*360))).date().isoformat() 
 images = [] # Create initial empty image collection
 for _ in range(len(unique_time)):
     images.append(ax.imshow(np.empty((0,0)), visible=False, origin='lower', cmap='viridis'))
-    
+
 ani = animation.FuncAnimation(fig, animate, frames=len(unique_time), interval=500, blit=True, repeat=False)
 
 # writer = PillowWriter(fps=5)

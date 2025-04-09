@@ -236,14 +236,14 @@ ax1.set_xlabel('dist to coast (km)')
 ax1.scatter(np.array(results[data_name]['dist_to_coast']), 
             np.array(results[data_name]['diff_sr']), 
             color='tab:red', label='SR', alpha=0.7)
-ax1.set_ylabel('SR accuracy (deg)', color='tab:red')
+ax1.set_ylabel('SR-InSitu MAE (deg)', color='tab:red')
 ax1.tick_params(axis='y', labelcolor='tab:red')
 
 ax2 = ax1.twinx()
 ax2.scatter(np.array(results[data_name]['dist_to_coast']), 
             np.array(results[data_name]['diff_hr']), 
             color='tab:blue', label='HR', alpha=0.7)
-ax2.set_ylabel('HR accuracy (deg)', color='tab:blue')
+ax2.set_ylabel('HR-InSitu MAE (deg)', color='tab:blue')
 ax2.tick_params(axis='y', labelcolor='tab:blue')
 
 ax1.legend(loc="upper left")
